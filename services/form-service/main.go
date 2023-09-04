@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgtype"
 
 	"form-service/models"
 
@@ -93,7 +93,7 @@ func createForm(c *gin.Context) {
 	type QuestionJsonBody struct {
 		Type     models.QuestionType `json:"type"`
 		Text     string              `json:"text"`
-		Options  pq.StringArray      `json:"options"`
+		Options  []string            `json:"options"`
 		Required bool                `json:"required"`
 	}
 
@@ -126,12 +126,14 @@ func createForm(c *gin.Context) {
 
 	var questions []models.Question
 	for i, q := range formRequest.Questions {
+		optionArray := pgtype.TextArray{}
+		optionArray.Set(q.Options)
 		questions = append(questions, models.Question{
 			FormID:   form.ID,
 			Order:    uint(i + 1),
 			Type:     q.Type,
 			Text:     q.Text,
-			Options:  q.Options,
+			Options:  optionArray,
 			Required: q.Required,
 		})
 	}
@@ -196,10 +198,10 @@ func submitFormResponse(c *gin.Context) {
 		UserID  uuid.UUID `json:"user_id"`
 		Answers []struct {
 			QuestionID uint `json:"question_id"`
-			Value      struct {
-				Type  string      `json:"type"`
-				Value interface{} `json:"value"`
-			} `json:"value"`
+			Answer     struct {
+				Type  string       `json:"type"`
+				Value pgtype.JSONB `json:"value"`
+			} `json:"answer"`
 		} `json:"answers"`
 	}
 
@@ -208,24 +210,37 @@ func submitFormResponse(c *gin.Context) {
 		return
 	}
 
+	tx := db.Begin()
+
 	response := models.Response{
 		FormID:         responseJSON.FormID,
 		UserID:         uuid.New(), // NOTE: late add auth and get id
 		SubmissionTime: time.Now(),
 	}
 
-	for _, answerJSON := range responseJSON.Answers {
-		answer := models.Answer{
-			QuestionID: answerJSON.QuestionID,
-			Value: models.AnswerValue{
-				Type:  answerJSON.Value.Type,
-				Value: answerJSON.Value.Value,
-			},
-		}
-		response.Answers = append(response.Answers, answer)
+	if err := tx.Create(&response).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	if err := db.Create(&response).Error; err != nil {
+	var answers []models.Answer
+	for _, a := range responseJSON.Answers {
+		answers = append(answers, models.Answer{
+			QuestionID: a.QuestionID,
+			ResponseID: response.ID,
+			Type:       a.Answer.Type,
+			Value:      a.Answer.Value,
+		})
+	}
+
+	if err := tx.Create(&answers).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -242,7 +257,7 @@ func getFormResponseByID(c *gin.Context) {
 
 	var response models.Response
 	if err := db.Preload("Answers").First(&response, responseID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Response not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -254,8 +269,6 @@ func getFormResponseByID(c *gin.Context) {
 
 	responseJSON := map[string]interface{}{
 		"id":              response.ID,
-		"form_id":         response.FormID,
-		"user_id":         response.UserID,
 		"submission_time": response.SubmissionTime,
 		"form": map[string]interface{}{
 			"id":          form.ID,
@@ -265,13 +278,26 @@ func getFormResponseByID(c *gin.Context) {
 		},
 	}
 
+	// TODO: bad code O(n^2) improve
 	for _, question := range form.Questions {
-		answerJSON := map[string]interface{}{}
+		var answerValue interface{}
 		for _, answer := range response.Answers {
 			if answer.QuestionID == question.ID {
-				answerJSON = map[string]interface{}{
-					"type":  answer.Value.Type,
-					"value": answer.Value.Value,
+				switch question.Type {
+				case models.Radio:
+					var valueIdx uint
+					answer.Value.AssignTo(&valueIdx)
+					answerValue = question.Options.Elements[valueIdx]
+				case models.Checkbox:
+					var valueIdxs []uint
+					answer.Value.AssignTo(&valueIdxs)
+					var value []string
+					for _, idx := range valueIdxs {
+						value = append(value, question.Options.Elements[idx].String)
+					}
+					answerValue = value
+				case models.Text:
+					answer.Value.AssignTo(&answerValue)
 				}
 				break
 			}
@@ -281,8 +307,8 @@ func getFormResponseByID(c *gin.Context) {
 			"id":      question.ID,
 			"type":    question.Type,
 			"text":    question.Text,
-			"options": question.Options,
-			"answer":  answerJSON,
+			"options": question.Options.Elements,
+			"answer":  answerValue,
 		}
 
 		responseJSON["form"].(map[string]interface{})["questions"] = append(

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgtype"
 	"gorm.io/gorm"
 )
 
@@ -26,12 +26,12 @@ type Form struct {
 
 type Question struct {
 	gorm.Model
-	Order    uint           `json:"order"`
-	FormID   uint           `json:"form_id"`
-	Type     QuestionType   `json:"type"`
-	Text     string         `json:"text"`
-	Options  pq.StringArray `json:"options" gorm:"type:text[]"`
-	Required bool           `json:"required"`
+	Order    uint             `json:"order"`
+	FormID   uint             `json:"form_id"`
+	Type     QuestionType     `json:"type"`
+	Text     string           `json:"text"`
+	Options  pgtype.TextArray `json:"options" gorm:"type:text[]"`
+	Required bool             `json:"required"`
 }
 
 type Response struct {
@@ -45,14 +45,10 @@ type Response struct {
 
 type Answer struct {
 	gorm.Model
-	ResponseID uint        `json:"response_id"`
-	QuestionID uint        `json:"question_id"`
-	Value      AnswerValue `json:"value" gorm:"type:jsonb"`
-	Response   Response    `gorm:"foreignKey:ResponseID"`
-	Question   Question    `gorm:"foreignKey:QuestionID"`
-}
-
-type AnswerValue struct {
-	Type  string      `json:"type"`
-	Value interface{} `json:"value"` // int, int[], string
+	ResponseID uint         `json:"response_id"`
+	QuestionID uint         `json:"question_id"`
+	Type       string       `json:"type"`
+	Value      pgtype.JSONB `json:"value" gorm:"type:jsonb"` // It can have values of type int, []int, string
+	Response   Response     `gorm:"foreignKey:ResponseID"`
+	Question   Question     `gorm:"foreignKey:QuestionID"`
 }

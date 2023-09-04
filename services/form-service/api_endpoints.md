@@ -131,4 +131,3 @@ Sure, I can provide you with a sample set of API endpoints for creating forms, g
 
    - 201 Created: The response has been successfully submitted, and the response may include the newly created response's ID.
 
-These are basic examples of API endpoints to create, retrieve, and submit forms. You'll need to implement the corresponding backend logic to handle these requests and interact with the database based on your chosen programming language and framework. Additionally, don't forget to implement authentication and authorization as needed for your application.

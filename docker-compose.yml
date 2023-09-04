@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  form-service:
+    container_name: form-service
+    build:
+      context: ./services/form-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: form_service_man
+      DB_PASSWORD: form_service_man
+      DB_NAME: form_service_database
+      DB_SSLMODE: disable
+    networks:
+      - form_network
+
+  postgres:
+    image: postgres:latest
+    container_name: db-form-service
+    environment:
+      POSTGRES_USER: form_service_man
+      POSTGRES_PASSWORD: form_service_man
+      POSTGRES_DB: form_service_database
+    expose:
+      - "5432"
+    networks:
+      - form_network
+
+networks:
+  form_network:
+    driver: bridge

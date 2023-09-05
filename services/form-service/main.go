@@ -58,12 +58,8 @@ func main() {
 	// 	panic(err)
 	// }
 
-	for {
-		if db, err = connectToDatabase(); err == nil {
-			break
-		}
-		fmt.Println("Failed to connect to the database. Retrying in 3 seconds...")
-		time.Sleep(3 * time.Second)
+	if db, err = connectToDatabase(); err != nil {
+		panic(err)
 	}
 
 	dbInstance, err := db.DB()

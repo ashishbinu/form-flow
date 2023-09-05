@@ -3,13 +3,15 @@ version: '3.8'
 services:
   form-service:
     container_name: form-service
+    restart: unless-stopped
     build:
       context: ./services/form-service
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -23,10 +25,18 @@ services:
   postgres:
     image: postgres:latest
     container_name: db-form-service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
     environment:
       POSTGRES_USER: form_service_man
       POSTGRES_PASSWORD: form_service_man
       POSTGRES_DB: form_service_database
+    volumes:
+      - ./database/form:/var/lib/postgresql/data
     expose:
       - "5432"
     networks:

@@ -1,2 +1,4 @@
-*.md
-send-requests.sh
+*
+!**/*.go
+!go.mod
+!go.sum

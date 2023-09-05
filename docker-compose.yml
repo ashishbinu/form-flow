@@ -7,6 +7,10 @@ services:
     build:
       context: ./services/form-service
       dockerfile: Dockerfile
+    x-develop:
+      watch:
+        - action: rebuild
+          path: ./services/form-service/
     ports:
       - "8080:8080"
     depends_on:

@@ -131,3 +131,64 @@ Sure, I can provide you with a sample set of API endpoints for creating forms, g
 
    - 201 Created: The response has been successfully submitted, and the response may include the newly created response's ID.
 
+4. **GET Response by ID Endpoint (GET):**
+
+- URL: `/api/v1/responses/{id}`
+- Method: GET
+- Description: This endpoint allows users to retrieve a specific response by its ID, including the associated questions and answers.
+
+Response Format Example:
+
+```json
+{
+  "id": "123", // Response ID
+  "submission_time": "2023-09-04T12:30:00Z", // Submission timestamp
+  "form": {
+    "id": "form-1",
+    "title": "Your Form Title",
+    "description": "Description of your form",
+    "questions": [
+      {
+        "id": "question-1",
+        "type": "radio",
+        "text": "What is your favorite color?",
+        "options": ["Red", "Blue", "Green", "Other"],
+        "answer": {
+          "type": "radio",
+          "value": "Blue" // Answer value corresponding to this question
+        }
+      },
+      {
+        "id": "question-2",
+        "type": "text",
+        "text": "Please provide your feedback:",
+        "required": true,
+        "answer": {
+          "type": "text",
+          "value": "Great form!" // Answer value corresponding to this question
+        }
+      },
+      {
+        "id": "question-3",
+        "type": "checkbox",
+        "text": "Select your interests:",
+        "options": ["Sports", "Movies", "Reading", "Travel"],
+        "answer": {
+          "type": "checkbox",
+          "value": ["Sports", "Reading"] // Answer value corresponding to this question
+        }
+      }
+      // Add more questions as needed
+    ]
+  }
+}
+```
+
+In this response format:
+
+- `"id"` represents the ID of the response.
+- `"submission_time"` is the timestamp when the response was submitted.
+- `"form"` contains the details of the associated form, including its title, description, and an array of questions.
+- Each question object in the `"questions"` array includes details about the question and its associated answer. The `"answer"` field within each question provides information about the type of answer and the actual answer value.
+
+This format allows you to provide a comprehensive view of the response, including the associated questions and their answers in a nested structure. Adjust the output format as needed to suit your specific requirements and frontend consumption.

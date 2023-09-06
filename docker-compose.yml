@@ -14,21 +14,21 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      postgres:
+      form-db:
         condition: service_healthy
     environment:
-      DB_HOST: postgres
+      DB_HOST: form-db
       DB_PORT: 5432
       DB_USER: form_service_man
       DB_PASSWORD: form_service_man
       DB_NAME: form_service_database
       DB_SSLMODE: disable
     networks:
-      - form_network
+      - form-network
 
-  postgres:
+  form-db:
     image: postgres:latest
-    container_name: db-form-service
+    container_name: form-db
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
@@ -44,8 +44,56 @@ services:
     expose:
       - "5432"
     networks:
-      - form_network
+      - form-network
+
+  auth-service:
+    container_name: auth-service
+    restart: unless-stopped
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    x-develop:
+      watch:
+        - action: rebuild
+          path: ./services/auth-service/
+    ports:
+      - "8081:8080"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: auth-db
+      DB_PORT: 5432
+      DB_USER: auth_service_man
+      DB_PASSWORD: auth_service_man
+      DB_NAME: auth_service_database
+      DB_SSLMODE: disable
+      JWT_SECRET: hAnjwHeNT2kpQmY8I46
+    networks:
+      - auth-network
+
+  auth-db:
+    image: postgres:latest
+    container_name: auth-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_USER: auth_service_man
+      POSTGRES_PASSWORD: auth_service_man
+      POSTGRES_DB: auth_service_database
+    volumes:
+      - ./database/auth:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - auth-network
 
 networks:
-  form_network:
+  form-network:
+    driver: bridge
+  auth-network:
     driver: bridge

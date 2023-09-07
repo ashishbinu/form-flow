@@ -27,6 +27,7 @@ func isAuthorised(c *gin.Context) {
 	token := c.GetHeader("Authorization")
 	if token == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.Abort()
 		return
 	}
 	client := &http.Client{}
@@ -36,6 +37,7 @@ func isAuthorised(c *gin.Context) {
 
 	if err != nil || resp.StatusCode != 200 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.Abort()
 		return
 	}
 	body, _ := io.ReadAll(resp.Body)
@@ -49,7 +51,8 @@ func isAuthorised(c *gin.Context) {
 	}
 	var response JSONResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		fmt.Println("Error:", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.Abort()
 		return
 	}
 

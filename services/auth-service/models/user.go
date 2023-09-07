@@ -2,7 +2,6 @@ package models
 
 import (
 	"auth-service/database"
-	"github.com/matoous/go-nanoid/v2"
 	"html"
 	"strings"
 
@@ -24,7 +23,6 @@ type User struct {
 	Email    string   `gorm:"size:255;not null;unique" json:"email"`
 	Phone    string   `gorm:"size:20;not null" json:"phone"`
 	Password string   `gorm:"size:255;not null" json:"-"`
-	TeamID   *string  `gorm:"size:21;default:null" json:"team_id"` // Using string for NanoID
 }
 
 func (user *User) Register() (*User, error) {
@@ -40,22 +38,6 @@ func (user *User) Register() (*User, error) {
 		return &User{}, err
 	}
 	return user, nil
-}
-
-// its a hook
-func (user *User) BeforeCreate(tx *gorm.DB) (err error) {
-	if user.Role == "user" {
-		user.TeamID = nil
-
-	}
-	if user.Role == "team" {
-		nanoid, err := gonanoid.New()
-		user.TeamID = &nanoid
-    if err != nil {
-      return err
-    }
-	}
-	return nil
 }
 
 func GetUsers(User *[]User) (err error) {

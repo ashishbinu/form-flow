@@ -8,5 +8,4 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go 
 FROM alpine:latest
 WORKDIR /app
 COPY --from=build /app/app .
-EXPOSE 8080
 CMD ["./app"]

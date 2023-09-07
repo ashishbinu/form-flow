@@ -1,6 +1,42 @@
 version: '3.8'
 
 services:
+  nginx:
+    container_name: nginx
+    image: nginx:latest
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "3000:80"
+    depends_on:
+      - form-service
+      - auth-service
+    networks:
+      - form-network
+      - auth-network
+
+  # api-gateway:
+  #   container_name: api-gateway
+  #   restart: unless-stopped
+  #   build:
+  #     context: ./services/api-gateway
+  #     dockerfile: Dockerfile
+  #   x-develop:
+  #     watch:
+  #       - action: rebuild
+  #         path: ./services/api-gateway/
+  #   expose:
+  #     - "80"
+  #   ports:
+  #     - "3000:80"
+  #   networks:
+  #     - form-network
+  #     - auth-network
+  #   depends_on:
+  #     - form-service
+  #     - auth-service
+  #
   form-service:
     container_name: form-service
     restart: unless-stopped
@@ -11,8 +47,8 @@ services:
       watch:
         - action: rebuild
           path: ./services/form-service/
-    ports:
-      - "8080:8080"
+    expose:
+      - "80"
     depends_on:
       form-db:
         condition: service_healthy
@@ -56,8 +92,8 @@ services:
       watch:
         - action: rebuild
           path: ./services/auth-service/
-    ports:
-      - "8081:8080"
+    expose:
+      - "80"
     depends_on:
       auth-db:
         condition: service_healthy

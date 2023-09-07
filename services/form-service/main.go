@@ -73,12 +73,18 @@ func main() {
 
 	r := gin.Default()
 
-	r.POST("/forms", createForm)
-	r.GET("/forms/:id", getFormByID)
-	r.POST("/responses", submitFormResponse)
-	r.GET("/responses/:id", getFormResponseByID)
+	api := r.Group("/api/v1/form")
 
-	r.Run()
+	api.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	api.POST("/", createForm)
+	api.GET("/:id", getFormByID)
+	api.POST("/responses", submitFormResponse)
+	api.GET("/responses/:id", getFormResponseByID)
+
+	r.Run(":80")
 }
 
 // TODO: for all database inserts and errors

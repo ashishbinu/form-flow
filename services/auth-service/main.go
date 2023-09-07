@@ -36,12 +36,17 @@ func main() {
 
 	defer database.CloseDB()
 
-	// NOTE: maybe add verification of email and phone later
-	r.POST("/auth/register", Register)
-	r.POST("/auth/login", Login)
-	r.GET("/auth/validate", Validate)
+	api := r.Group("/api/v1/auth")
 
-	r.Run()
+	api.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+	// NOTE: maybe add verification of email and phone later
+	api.POST("/register", Register)
+	api.POST("/login", Login)
+	api.GET("/validate", Validate)
+
+	r.Run(":80")
 }
 
 func Register(c *gin.Context) {

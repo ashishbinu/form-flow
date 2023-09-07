@@ -1,8 +1,6 @@
 package main
 
 import (
-	// "fmt"
-	// "io"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,8 +57,8 @@ func isAuthorised(c *gin.Context) {
 	id := response.Claims.ID
 	role := response.Claims.Role
 
-	c.Header("X-Id", fmt.Sprint(id))
-	c.Header("X-Role", role)
+  c.Request.Header.Set("X-Id",fmt.Sprint(id))
+  c.Request.Header.Set("X-Role",role)
 
 	defer resp.Body.Close()
 	c.Next()

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgtype"
@@ -91,6 +92,11 @@ func role(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userRole := c.Request.Header.Get("X-Role")
 
+    // // print headers
+    // for k, v := range c.Request.Header {
+    //   fmt.Printf("%s: %s\n", k, v)
+    // }
+
 		roleMatched := false
 		for _, role := range roles {
 			if userRole == role {
@@ -100,7 +106,7 @@ func role(roles ...string) gin.HandlerFunc {
 		}
 
 		if !roleMatched {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not a " + strings.Join(roles, ", ")})
 			c.Abort()
 			return
 		}

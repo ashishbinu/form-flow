@@ -92,10 +92,10 @@ func role(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userRole := c.Request.Header.Get("X-Role")
 
-    // // print headers
-    // for k, v := range c.Request.Header {
-    //   fmt.Printf("%s: %s\n", k, v)
-    // }
+		// // print headers
+		// for k, v := range c.Request.Header {
+		//   fmt.Printf("%s: %s\n", k, v)
+		// }
 
 		roleMatched := false
 		for _, role := range roles {
@@ -210,10 +210,12 @@ func getFormByID(c *gin.Context) {
 
 	for _, question := range form.Questions {
 		questionData := map[string]interface{}{
-			"id":      question.ID,
-			"type":    question.Type,
-			"text":    question.Text,
-			"options": question.Options,
+			"id":   question.ID,
+			"type": question.Type,
+			"text": question.Text,
+		}
+		if options := question.Options.Elements; options != nil {
+			questionData["options"] = options
 		}
 
 		if question.Required {
@@ -310,11 +312,10 @@ func getFormResponseByID(c *gin.Context) {
 			return
 		}
 		if response.UserID != uint(userId) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "You can't access responses not created by you"})
 			return
 		}
-	}
-	if c.GetHeader("X-Role") == "team" {
+	} else if c.GetHeader("X-Role") == "team" {
 		var form models.Form
 		if err := db.First(&form, response.FormID).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -326,7 +327,7 @@ func getFormResponseByID(c *gin.Context) {
 			return
 		}
 		if form.TeamID != uint(teamId) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "You can't access responses to forms not created by your team"})
 			return
 		}
 	} else {
@@ -343,6 +344,7 @@ func getFormResponseByID(c *gin.Context) {
 	responseJSON := map[string]interface{}{
 		"id":              response.ID,
 		"submission_time": response.SubmissionTime,
+		"user_id":         response.UserID,
 		"form": map[string]interface{}{
 			"id":          form.ID,
 			"title":       form.Title,
@@ -377,11 +379,14 @@ func getFormResponseByID(c *gin.Context) {
 		}
 
 		questionJSON := map[string]interface{}{
-			"id":      question.ID,
-			"type":    question.Type,
-			"text":    question.Text,
-			"options": question.Options.Elements,
-			"answer":  answerValue,
+			"id":     question.ID,
+			"type":   question.Type,
+			"text":   question.Text,
+			"answer": answerValue,
+		}
+
+		if options := question.Options.Elements; options != nil {
+			questionJSON["options"] = options
 		}
 
 		responseJSON["form"].(map[string]interface{})["questions"] = append(

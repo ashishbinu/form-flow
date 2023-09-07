@@ -73,16 +73,16 @@ func main() {
 
 	r := gin.Default()
 
-	api := r.Group("/api/v1/form")
+	v1 := r.Group("/api/v1/form")
 
-	api.GET("/health", func(c *gin.Context) {
+	v1.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	api.POST("/", createForm)
-	api.GET("/:id", getFormByID)
-	api.POST("/responses", submitFormResponse)
-	api.GET("/responses/:id", getFormResponseByID)
+	v1.POST("/", createForm)
+	v1.GET("/:id", getFormByID)
+	v1.POST("/responses", submitFormResponse)
+	v1.GET("/responses/:id", getFormResponseByID)
 
 	r.Run(":80")
 }

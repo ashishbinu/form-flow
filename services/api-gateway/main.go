@@ -17,8 +17,8 @@ func main() {
 	r := gin.Default()
 
 	v1 := r.Group("/api/v1")
-	v1.GET("/form/*path", isAuthorised, reverseProxy("http://form-service"))
-	v1.GET("/auth/*path", reverseProxy("http://auth-service"))
+	v1.Any("/form/*path", isAuthorised, reverseProxy("http://form-service"))
+	v1.Any("/auth/*path", reverseProxy("http://auth-service"))
 
 	r.Run(":80")
 }

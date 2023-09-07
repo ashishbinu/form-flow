@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgtype"
 
 	"form-service/models"
@@ -79,12 +79,34 @@ func main() {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	v1.POST("/", createForm)
-	v1.GET("/:id", getFormByID)
-	v1.POST("/responses", submitFormResponse)
-	v1.GET("/responses/:id", getFormResponseByID)
+	v1.POST("/", role("team"), createForm)
+	v1.GET("/:id", role("user", "team"), getFormByID)
+	v1.POST("/responses", role("user"), submitFormResponse)
+	v1.GET("/responses/:id", role("user", "team"), getFormResponseByID)
 
 	r.Run(":80")
+}
+
+func role(roles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userRole := c.Request.Header.Get("X-Role")
+
+		roleMatched := false
+		for _, role := range roles {
+			if userRole == role {
+				roleMatched = true
+				break
+			}
+		}
+
+		if !roleMatched {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
 }
 
 // TODO: for all database inserts and errors
@@ -113,11 +135,17 @@ func createForm(c *gin.Context) {
 	}
 
 	tx := db.Begin()
+	teamId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	form := models.Form{
 		Title:       formRequest.Title,
 		Description: formRequest.Description,
-		TeamID:      uuid.New(),
+		TeamID:      uint(teamId),
 	}
 
 	if err := tx.Create(&form).Error; err != nil {
@@ -196,8 +224,8 @@ func submitFormResponse(c *gin.Context) {
 	// TODO: Here there generic validation which should follow the required in this
 	// NOTE: improve this to use already existing types
 	var responseJSON struct {
-		FormID  uint      `json:"form_id"`
-		UserID  uuid.UUID `json:"user_id"`
+		FormID  uint `json:"form_id"`
+		UserID  uint `json:"user_id"`
 		Answers []struct {
 			QuestionID uint `json:"question_id"`
 			Answer     struct {
@@ -214,9 +242,16 @@ func submitFormResponse(c *gin.Context) {
 
 	tx := db.Begin()
 
+	userId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	response := models.Response{
 		FormID:         responseJSON.FormID,
-		UserID:         uuid.New(), // NOTE: late add auth and get id
+		UserID:         uint(userId),
 		SubmissionTime: time.Now(),
 	}
 
@@ -256,10 +291,40 @@ func submitFormResponse(c *gin.Context) {
 
 func getFormResponseByID(c *gin.Context) {
 	responseID := c.Param("id")
-
 	var response models.Response
 	if err := db.Preload("Answers").First(&response, responseID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	// authorisation
+	if c.GetHeader("X-Role") == "user" {
+		userId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if response.UserID != uint(userId) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
+	}
+	if c.GetHeader("X-Role") == "team" {
+		var form models.Form
+		if err := db.First(&form, response.FormID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		teamId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if form.TeamID != uint(teamId) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
+	} else {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 

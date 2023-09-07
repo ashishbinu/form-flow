@@ -3,7 +3,6 @@ package models
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgtype"
 	"gorm.io/gorm"
 )
@@ -18,9 +17,9 @@ const (
 
 type Form struct {
 	gorm.Model
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	TeamID      uuid.UUID `json:"team_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	TeamID      uint   `json:"team_id"`
 	Questions   []Question
 }
 
@@ -37,7 +36,7 @@ type Question struct {
 type Response struct {
 	gorm.Model
 	FormID         uint      `json:"form_id"`
-	UserID         uuid.UUID `json:"user_id"`
+	UserID         uint      `json:"user_id"`
 	SubmissionTime time.Time `json:"submission_time"`
 	Form           Form      `gorm:"foreignKey:FormID"`
 	Answers        []Answer  // NOTE: you can do some prelaod stuff to it like - `db.Preload("Answers").Find(&form, formID)`

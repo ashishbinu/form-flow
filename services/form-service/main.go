@@ -84,6 +84,9 @@ func main() {
 	v1.GET("/:id", role("user", "team"), getFormByID)
 	v1.POST("/responses", role("user"), submitFormResponse)
 	v1.GET("/responses/:id", role("user", "team"), getFormResponseByID)
+	v1.GET("/:id/responses", role("team"), getFormResponsesByFormID)
+	// internal endpoint
+	r.GET("/:id/responses", getFormResponsesByFormID)
 
 	r.Run(":80")
 }
@@ -396,4 +399,108 @@ func getFormResponseByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responseJSON)
+}
+
+func getFormResponsesByFormID(c *gin.Context) {
+	formID := c.Param("id")
+
+	var response struct {
+		FormID      uint   `json:"form_id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Questions   []struct {
+			ID    uint   `json:"id"`
+			Value string `json:"value"`
+		} `json:"questions"`
+		Responses []struct {
+			UserID  uint `json:"user_id"`
+			Answers []struct {
+				QuestionID uint        `json:"question_id"`
+				Value      interface{} `json:"value"`
+			} `json:"answers"`
+		} `json:"responses"`
+	}
+
+	// Retrieve form data
+	var form models.Form
+	if err := db.First(&form, formID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	response.FormID = form.ID
+	response.Title = form.Title
+	response.Description = form.Description
+
+	// Retrieve question data
+	var questions []models.Question
+	if err := db.Where("form_id = ?", form.ID).Find(&questions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	for _, question := range questions {
+		response.Questions = append(response.Questions, struct {
+			ID    uint   `json:"id"`
+			Value string `json:"value"`
+		}{
+			ID:    question.ID,
+			Value: question.Text,
+		})
+	}
+
+	// Retrieve response data
+	var responses []models.Response
+	if err := db.Where("form_id = ?", form.ID).Preload("Answers").Find(&responses).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	for _, resp := range responses {
+		response.Responses = append(response.Responses, struct {
+			UserID  uint `json:"user_id"`
+			Answers []struct {
+				QuestionID uint        `json:"question_id"`
+				Value      interface{} `json:"value"`
+			} `json:"answers"`
+		}{
+			UserID: resp.UserID,
+		})
+
+		for _, answer := range resp.Answers {
+			var question models.Question
+			for _, q := range questions {
+				if answer.QuestionID == q.ID {
+					question = q
+					break
+				}
+			}
+			var answerValue interface{}
+			switch question.Type {
+			case models.Radio:
+				var valueIdx uint
+				answer.Value.AssignTo(&valueIdx)
+				answerValue = question.Options.Elements[valueIdx]
+			case models.Checkbox:
+				var valueIdxs []uint
+				answer.Value.AssignTo(&valueIdxs)
+				var value []string
+				for _, idx := range valueIdxs {
+					value = append(value, question.Options.Elements[idx].String)
+				}
+				answerValue = value
+			case models.Text:
+				answer.Value.AssignTo(&answerValue)
+			}
+			response.Responses[len(response.Responses)-1].Answers = append(response.Responses[len(response.Responses)-1].Answers, struct {
+				QuestionID uint        `json:"question_id"`
+				Value      interface{} `json:"value"`
+			}{
+				QuestionID: answer.QuestionID,
+				Value:      answerValue,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }

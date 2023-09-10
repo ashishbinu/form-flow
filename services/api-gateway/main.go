@@ -17,6 +17,7 @@ func main() {
 	v1 := r.Group("/api/v1")
 	v1.Any("/form/*path", isAuthorised, reverseProxy("http://form-service"))
 	v1.Any("/auth/*path", reverseProxy("http://auth-service"))
+	v1.Any("/plugins/*path", isAuthorised, reverseProxy("http://plugin-manager-service"))
 
 	r.Run(":80")
 }
@@ -57,8 +58,8 @@ func isAuthorised(c *gin.Context) {
 	id := response.Claims.ID
 	role := response.Claims.Role
 
-  c.Request.Header.Set("X-Id",fmt.Sprint(id))
-  c.Request.Header.Set("X-Role",role)
+	c.Request.Header.Set("X-Id", fmt.Sprint(id))
+	c.Request.Header.Set("X-Role", role)
 
 	defer resp.Body.Close()
 	c.Next()

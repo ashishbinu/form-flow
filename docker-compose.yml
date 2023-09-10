@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   # nginx:
@@ -33,9 +33,12 @@ services:
     networks:
       - form-network
       - auth-network
+      - plugin-manager-network
     depends_on:
       - form-service
       - auth-service
+      - plugin-manager-service
+
 
   form-service:
     container_name: form-service
@@ -128,8 +131,78 @@ services:
     networks:
       - auth-network
 
+  plugin-manager-service:
+    container_name: plugin-manager-service
+    restart: unless-stopped
+    build:
+      context: ./services/plugin-manager-service
+      dockerfile: Dockerfile
+    x-develop:
+      watch:
+        - action: rebuild
+          path: ./services/plugin-manager-service/
+    expose:
+      - "80"
+    depends_on:
+      plugin-manager-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: plugin-manager-db
+      DB_PORT: 5432
+      DB_USER: plugin_manager_service_man
+      DB_PASSWORD: plugin_manager_service_man
+      DB_NAME: plugin_manager_service_database
+      DB_SSLMODE: disable
+    networks:
+      - plugin-manager-network
+
+  plugin-manager-db:
+    image: postgres:latest
+    container_name: plugin-manager-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_USER: plugin_manager_service_man
+      POSTGRES_PASSWORD: plugin_manager_service_man
+      POSTGRES_DB: plugin_manager_service_database
+    volumes:
+      - ./database/plugin-manager:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - plugin-manager-network
+      - google-sheets-network
+
+  google-sheets-service:
+    container_name: google-sheets-service
+    restart: unless-stopped
+    build:
+      context: ./services/plugins/google-sheets-service
+      dockerfile: Dockerfile
+    x-develop:
+      watch:
+        - action: rebuild
+          path: ./services/plugins/google-sheets-service/
+    expose:
+      - "80"
+    depends_on:
+      - plugin-manager-service
+      - form-service
+    networks:
+      - google-sheets-network
+      - plugin-manager-network
+      - form-network
+
 networks:
   form-network:
     driver: bridge
   auth-network:
+    driver: bridge
+  plugin-manager-network:
+    driver: bridge
+  google-sheets-network:
     driver: bridge

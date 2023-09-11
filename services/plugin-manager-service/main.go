@@ -12,6 +12,8 @@ import (
 	"plugin-manager-service/models"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -63,7 +65,48 @@ func main() {
 			"status": "ok",
 		})
 	})
-	r.Run(":80")
+
+	var plugins []models.Plugin
+	var urls []string
+	if err := database.DB.Find(&plugins).Error; err != nil {
+		log.Fatal(err)
+	} else {
+		for _, plugin := range plugins {
+			urls = append(urls, plugin.Url)
+		}
+
+		pollingInterval := 10 * time.Second
+		var wg sync.WaitGroup
+
+		for _, url := range urls {
+			wg.Add(1)
+			go pollEndpoint(url+"/health", pollingInterval, &wg)
+		}
+
+		go func() {
+			r.Run(":80")
+		}()
+
+		wg.Wait()
+	}
+}
+
+func pollEndpoint(endpointURL string, pollingInterval time.Duration, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		resp, err := http.Get(endpointURL)
+		if err != nil {
+			log.Printf("Error polling %s: %v\n", endpointURL, err)
+			continue // Continue polling even if there's an error
+		}
+		defer resp.Body.Close()
+
+		// Read and print the response (you can modify this part for your specific use case)
+		// For example, you might want to process the response data differently.
+		log.Printf("Response from %s: Status %s\n", endpointURL, resp.Status)
+
+		time.Sleep(pollingInterval)
+	}
 }
 
 func role(roles ...string) gin.HandlerFunc {
@@ -259,7 +302,6 @@ func ConfigurePlugin(c *gin.Context) {
 
 func SendActionToPlugin(c *gin.Context) {
 	id := uuid.MustParse(c.Param("id"))
-  
 
 	teamId, err := strconv.ParseUint(c.Request.Header.Get("X-Id"), 10, 64)
 	if err != nil {
@@ -366,7 +408,7 @@ func RegisterPlugin(c *gin.Context) {
 
 func reverseProxy(target string) gin.HandlerFunc {
 	targetURL, _ := url.Parse(target)
-  log.Println("URL :" + targetURL.String())
+	log.Println("URL :" + targetURL.String())
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	proxy.Director = func(req *http.Request) {
@@ -374,7 +416,7 @@ func reverseProxy(target string) gin.HandlerFunc {
 		req.Header.Set("X-Origin-Host", targetURL.Host)
 		req.URL.Scheme = targetURL.Scheme
 		req.URL.Host = targetURL.Host
-    req.URL.Path = targetURL.Path
+		req.URL.Path = targetURL.Path
 	}
 
 	proxy.ModifyResponse = func(res *http.Response) error {

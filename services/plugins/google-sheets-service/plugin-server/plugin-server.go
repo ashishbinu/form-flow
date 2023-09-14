@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"slices"
@@ -15,7 +16,7 @@ import (
 
 type PluginServer struct {
 	engine           *gin.Engine
-	plugin           Plugin
+	plugin           Plugin 
 	address          string
 	manager          string
 	msgQ             string
@@ -38,7 +39,7 @@ func (ps *PluginServer) Start(address string) error {
 	if err := ps.registerPluginWithManager(ps.manager); err != nil {
 		return fmt.Errorf("failed to register with plugin manager: %v", err)
 	}
-	if len(ps.plugin.Get().Events) != 0 {
+	if len(ps.plugin.Get().Events) > 0 {
 		if err := ps.initRabbitMQ(); err != nil {
 			return fmt.Errorf("failed to initialize RabbitMQ connection: %v", err)
 		}
@@ -57,6 +58,26 @@ func (ps *PluginServer) Start(address string) error {
 }
 
 func (ps *PluginServer) registerPluginWithManager(managerURL string) error {
+	// events := []string{}
+	//
+ //  // TODO: make it work; its not going in
+ //  if defaultPlugin, ok := interface{}(ps.plugin).(DefaultPluginBase); ok {
+ //    if defaultPlugin.GetEventHandlers() != nil {
+ //      for event := range defaultPlugin.GetEventHandlers() {
+ //        events = append(events, event)
+ //      }
+ //    }
+ //  }
+	// pluginData := PluginData{
+	// 	ID:          ps.plugin.Get().ID,
+	// 	Name:        ps.plugin.Get().Name,
+	// 	Description: ps.plugin.Get().Description,
+	// 	Url:         ps.plugin.Get().Url,
+	// 	Actions:     ps.plugin.Get().Actions,
+	// 	Events:      events,
+	// }
+	// registrationData, err := json.Marshal(pluginData)
+
 	registrationData, err := json.Marshal(ps.plugin.Get())
 	if err != nil {
 		return fmt.Errorf("failed to marshal plugin data to JSON: %v", err)
@@ -100,7 +121,8 @@ func (ps *PluginServer) initRabbitMQ() error {
 			ps.handleEvent(d.Body)
 			return rabbitmq.Ack
 		},
-		routingKey,
+		ps.plugin.Get().Name,
+    rabbitmq.WithConsumerOptionsRoutingKey(routingKey),
 		rabbitmq.WithConsumerOptionsExchangeName("manager"),
 		rabbitmq.WithConsumerOptionsExchangeDeclare,
 	)
@@ -125,14 +147,29 @@ func (ps *PluginServer) handleEvent(eventRawData []byte) {
 		return
 	}
 
-	ps.plugin.(*DefaultPluginBase).eventHandlers[eventName](eventData)
+  log.Println("---------------------------------------------------")
+  log.Println(eventName)
+  log.Println(ps.plugin.GetEventHandlers()["response-submission"])
+  log.Println("---------------------------------------------------")
+  var message interface{} = eventData
+	data, err := ps.plugin.GetEventHandlers()[eventName](message)
+	// NOTE: log this data and error
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(data)
+
 }
 
 func (ps *PluginServer) Close() error {
 	ps.plugin.Close()
-	ps.rabbitMQConsumer.Close()
-	if err := ps.rabbitMQConn.Close(); err != nil {
-		return err
+	if ps.rabbitMQConsumer != nil {
+		ps.rabbitMQConsumer.Close()
+	}
+	if ps.rabbitMQConn != nil {
+		if err := ps.rabbitMQConn.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

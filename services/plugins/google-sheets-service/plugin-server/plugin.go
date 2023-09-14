@@ -2,11 +2,12 @@ package server
 
 import (
 	"errors"
+
 	"github.com/google/uuid"
 )
 
 // EventCallback represents the callback function for handling events.
-type EventCallback func(interface{})
+type EventCallback func(interface{}) (interface{}, error)
 
 // PluginData represents the metadata of the plugin.
 type PluginData struct {
@@ -33,6 +34,9 @@ type Plugin interface {
 
 	// Do is called to execute a specific action provided by the plugin.
 	Do(actionName string, data map[string]interface{}) (interface{}, error)
+
+	On(eventName string, handler EventCallback)
+	GetEventHandlers() map[string]EventCallback
 }
 
 // DefaultPluginBase is a base implementation of the Plugin interface.
@@ -74,5 +78,13 @@ func (p *DefaultPluginBase) Do(actionName string, data map[string]interface{}) (
 
 // On is called to register an event handler for a specific event name.
 func (p *DefaultPluginBase) On(eventName string, handler EventCallback) {
+	// Check if p.eventHandlers is nil, and initialize it if needed
+	if p.eventHandlers == nil {
+		p.eventHandlers = make(map[string]EventCallback)
+	}
 	p.eventHandlers[eventName] = handler
+}
+
+func (p *DefaultPluginBase) GetEventHandlers() map[string]EventCallback {
+	return p.eventHandlers
 }

@@ -8,12 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgtype"
-
 	"form-service/models"
 
+	ginzap "github.com/gin-contrib/zap"
+	"go.elastic.co/ecszap"
+	"go.uber.org/zap"
+
 	"github.com/gin-gonic/gin"
-	// "github.com/joho/godotenv"
+	"github.com/jackc/pgtype"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -44,35 +46,41 @@ func connectToDatabase() (*gorm.DB, error) {
 	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s", dbConfig.Host, dbConfig.Port, dbConfig.User, dbConfig.DBName, dbConfig.Password, dbConfig.SSLMode)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		fmt.Println("Failed to connect to database")
 		return nil, err
 	}
 
 	return db, nil
 }
 
+var logger *zap.Logger
+
 func main() {
 	var err error
 
-	// if err = godotenv.Load(); err != nil {
-	// 	fmt.Println("Error loading .env file")
-	// 	panic(err)
-	// }
+	core := ecszap.NewCore(ecszap.NewDefaultEncoderConfig(), os.Stdout, zap.DebugLevel)
+	logger = zap.New(core, zap.AddCaller()).With(zap.String("service", "form-service"))
 
 	if db, err = connectToDatabase(); err != nil {
-		panic(err)
+		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
+	logger.Info("Connected to database")
 
 	dbInstance, err := db.DB()
 	if err != nil {
-		panic(err)
+		logger.Fatal("Failed to get database instance", zap.Error(err))
 	}
+	logger.Info("Database instance created")
 
 	defer dbInstance.Close()
 
-	db.AutoMigrate(&models.Form{}, &models.Question{}, &models.Answer{}, &models.Response{})
+	if err = db.AutoMigrate(&models.Form{}, &models.Question{}, &models.Answer{}, &models.Response{}); err != nil {
+		logger.Fatal("Failed to migrate database", zap.Error(err))
+	}
+	logger.Info("Database auto migrated", zap.String("table", "form"), zap.String("table", "question"), zap.String("table", "answer"), zap.String("table", "response"))
 
 	r := gin.Default()
+	r.Use(ginzap.Ginzap(logger, time.RFC3339, true))
+	r.Use(ginzap.RecoveryWithZap(logger, true))
 
 	v1 := r.Group("/api/v1/form")
 
@@ -88,17 +96,17 @@ func main() {
 	// internal endpoint
 	r.GET("/:id/responses", getFormResponsesByFormID)
 
-	r.Run(":80")
+	if err = r.Run(":80"); err != nil {
+		logger.Fatal("Failed to start server", zap.Error(err))
+	}
+	logger.Info("Server started", zap.String("address", ":80"))
 }
 
 func role(roles ...string) gin.HandlerFunc {
+
 	return func(c *gin.Context) {
 		userRole := c.Request.Header.Get("X-Role")
-
-		// // print headers
-		// for k, v := range c.Request.Header {
-		//   fmt.Printf("%s: %s\n", k, v)
-		// }
+		logger.Debug("Checking user role", zap.String("role", userRole), zap.Any("required_roles", roles))
 
 		roleMatched := false
 		for _, role := range roles {
@@ -109,6 +117,7 @@ func role(roles ...string) gin.HandlerFunc {
 		}
 
 		if !roleMatched {
+			logger.Warn("Not a recognized role", zap.String("role", userRole))
 			c.JSON(http.StatusForbidden, gin.H{"error": "Not a " + strings.Join(roles, ", ")})
 			c.Abort()
 			return
@@ -121,6 +130,7 @@ func role(roles ...string) gin.HandlerFunc {
 // TODO: for all database inserts and errors
 
 func createForm(c *gin.Context) {
+  logger.Debug("Entering createForm function")
 	// TODO: general schema validation
 
 	type QuestionJsonBody struct {
@@ -139,6 +149,7 @@ func createForm(c *gin.Context) {
 	var formRequest FormJsonBody
 
 	if err := c.BindJSON(&formRequest); err != nil {
+		logger.Error("Failed to bind request", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // TODO: log this
 		return
 	}
@@ -146,6 +157,7 @@ func createForm(c *gin.Context) {
 	tx := db.Begin()
 	teamId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
 	if err != nil {
+		logger.Error("Failed to parse X-Id", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -158,6 +170,7 @@ func createForm(c *gin.Context) {
 	}
 
 	if err := tx.Create(&form).Error; err != nil {
+		logger.Error("Failed to create form", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -178,31 +191,39 @@ func createForm(c *gin.Context) {
 	}
 
 	if err := tx.Create(&questions).Error; err != nil {
+		logger.Error("Failed to create questions", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Questions created", zap.Uint("form_id", form.ID), zap.Int("count", len(questions)), zap.Uint("team_id", uint(teamId)))
 
 	if err := tx.Commit().Error; err != nil {
+		logger.Error("Failed to commit transaction", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Form created", zap.Uint("form_id", form.ID))
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":  "success",
 		"message": "Form created successfully",
 		"form_id": form.ID,
 	})
+  logger.Debug("Exiting createForm function")
 }
 
 func getFormByID(c *gin.Context) {
+  logger.Debug("Entering getFormByID function")
 	formID := c.Param("id")
 	var form models.Form
 	if err := db.Preload("Questions").First(&form, formID).Error; err != nil {
+		logger.Error("Failed to get form", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{"error": "Form not found"})
 		return
 	}
+	logger.Debug("Form retrieved", zap.Uint("form_id", form.ID))
 
 	response := gin.H{
 		"id":          form.ID,
@@ -229,9 +250,11 @@ func getFormByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+  logger.Debug("Exiting getFormByID function")
 }
 
 func submitFormResponse(c *gin.Context) {
+  logger.Debug("Entering submitFormResponse function")
 	// TODO: Here there generic validation which should follow the required in this
 	// NOTE: improve this to use already existing types
 	var responseJSON struct {
@@ -247,6 +270,7 @@ func submitFormResponse(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&responseJSON); err != nil {
+		logger.Error("Failed to bind request", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -255,10 +279,12 @@ func submitFormResponse(c *gin.Context) {
 
 	userId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
 	if err != nil {
+		logger.Error("Failed to parse X-Id", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("User retrieved", zap.Uint64("user_id", userId))
 
 	response := models.Response{
 		FormID:         responseJSON.FormID,
@@ -270,6 +296,7 @@ func submitFormResponse(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Response created", zap.Uint("response_id", response.ID))
 
 	var answers []models.Answer
 	for _, a := range responseJSON.Answers {
@@ -282,67 +309,85 @@ func submitFormResponse(c *gin.Context) {
 	}
 
 	if err := tx.Create(&answers).Error; err != nil {
+		logger.Error("Failed to create answers", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Answers created", zap.Uint("response_id", response.ID), zap.Int("count", len(answers)))
 
 	if err := tx.Commit().Error; err != nil {
+		logger.Error("Failed to commit transaction", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Response submitted", zap.Uint("response_id", response.ID))
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":      "success",
 		"message":     "Response submitted successfully",
 		"response_id": response.ID,
 	})
+  logger.Debug("Exiting submitFormResponse function")
 }
 
 func getFormResponseByID(c *gin.Context) {
+  logger.Debug("Entering getFormResponseByID function")
 	responseID := c.Param("id")
 	var response models.Response
 	if err := db.Preload("Answers").First(&response, responseID).Error; err != nil {
+		logger.Error("Failed to get response", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Response retrieved", zap.Uint("response_id", response.ID))
 	// authorisation
 	if c.GetHeader("X-Role") == "user" {
 		userId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
 		if err != nil {
+			logger.Error("Failed to parse X-Id", zap.Error(err))
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if response.UserID != uint(userId) {
+			logger.Error("You can't access responses not created by you", zap.Uint("userId", uint(userId)), zap.Uint("requiredUserId", response.UserID))
 			c.JSON(http.StatusForbidden, gin.H{"error": "You can't access responses not created by you"})
 			return
 		}
 	} else if c.GetHeader("X-Role") == "team" {
 		var form models.Form
 		if err := db.First(&form, response.FormID).Error; err != nil {
+			logger.Error("Failed to get form", zap.Error(err))
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
+		logger.Debug("Form retrieved", zap.Uint("form_id", form.ID))
+
 		teamId, err := strconv.ParseUint(c.GetHeader("X-Id"), 10, 64)
 		if err != nil {
+			logger.Error("Failed to parse X-Id", zap.Error(err))
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if form.TeamID != uint(teamId) {
+			logger.Error("You can't access responses to forms not created by your team", zap.Uint("teamId", uint(teamId)), zap.Uint("requiredTeamId", form.TeamID))
 			c.JSON(http.StatusForbidden, gin.H{"error": "You can't access responses to forms not created by your team"})
 			return
 		}
 	} else {
+		logger.Error("Access denied", zap.String("role", c.GetHeader("X-Role")), zap.Uint("Id", response.UserID))
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
 	var form models.Form
 	if err := db.Preload("Questions").First(&form, response.FormID).Error; err != nil {
+		logger.Error("Failed to get form", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{"error": "Associated form not found"})
 		return
 	}
+	logger.Debug("Form retrieved", zap.Uint("form_id", form.ID))
 
 	responseJSON := map[string]interface{}{
 		"id":              response.ID,
@@ -399,9 +444,11 @@ func getFormResponseByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responseJSON)
+  logger.Debug("Exiting getFormResponseByID function")
 }
 
 func getFormResponsesByFormID(c *gin.Context) {
+  logger.Debug("Entering getFormResponsesByFormID function")
 	formID := c.Param("id")
 
 	var response struct {
@@ -424,9 +471,11 @@ func getFormResponsesByFormID(c *gin.Context) {
 	// Retrieve form data
 	var form models.Form
 	if err := db.First(&form, formID).Error; err != nil {
+		logger.Error("Failed to get form", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Form retrieved", zap.Uint("form_id", form.ID))
 
 	response.FormID = form.ID
 	response.Title = form.Title
@@ -435,9 +484,11 @@ func getFormResponsesByFormID(c *gin.Context) {
 	// Retrieve question data
 	var questions []models.Question
 	if err := db.Where("form_id = ?", form.ID).Find(&questions).Error; err != nil {
+		logger.Error("Failed to get questions", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Questions retrieved", zap.Uint("form_id", form.ID))
 
 	for _, question := range questions {
 		response.Questions = append(response.Questions, struct {
@@ -452,9 +503,11 @@ func getFormResponsesByFormID(c *gin.Context) {
 	// Retrieve response data
 	var responses []models.Response
 	if err := db.Where("form_id = ?", form.ID).Preload("Answers").Find(&responses).Error; err != nil {
+		logger.Error("Failed to get responses", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Responses retrieved", zap.Uint("form_id", form.ID))
 
 	for _, resp := range responses {
 		response.Responses = append(response.Responses, struct {
@@ -503,4 +556,5 @@ func getFormResponsesByFormID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+  logger.Debug("Exiting getFormResponsesByFormID function")
 }

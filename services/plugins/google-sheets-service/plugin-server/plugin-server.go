@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"slices"
@@ -45,8 +44,6 @@ func (ps *PluginServer) Start(address string) error {
 		}
 	}
 
-	log.Println("--------------")
-	log.Println("IS IT RUNNING")
 	ps.plugin.Initialize()
 	ps.engine.POST("/configure", ps.configurePlugin)
 	ps.engine.POST("/actions/:action", ps.executeAction)
@@ -164,9 +161,6 @@ func (ps *PluginServer) configurePlugin(c *gin.Context) {
 
 func (ps *PluginServer) executeAction(c *gin.Context) {
 	actions := ps.plugin.Get().Actions
-	log.Println("--------------------")
-	log.Println("actions", actions)
-	log.Println("--------------------")
 
 	if !slices.Contains(actions, c.Param("action")) {
 		c.JSON(http.StatusBadRequest, gin.H{

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +13,7 @@ import (
 	"form-service/models"
 
 	ginzap "github.com/gin-contrib/zap"
-	"go.elastic.co/ecszap"
+	"github.com/wagslane/go-rabbitmq"
 	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
@@ -53,12 +55,16 @@ func connectToDatabase() (*gorm.DB, error) {
 }
 
 var logger *zap.Logger
+var conn *rabbitmq.Conn
+var publisher *rabbitmq.Publisher
 
 func main() {
 	var err error
 
-	core := ecszap.NewCore(ecszap.NewDefaultEncoderConfig(), os.Stdout, zap.DebugLevel)
-	logger = zap.New(core, zap.AddCaller()).With(zap.String("service", "form-service"))
+	// core := ecszap.NewCore(ecszap.NewDefaultEncoderConfig(), os.Stdout, zap.DebugLevel)
+	// logger = zap.New(core, zap.AddCaller()).With(zap.String("service", "form-service"))
+	logger, _ = zap.NewDevelopment()
+	logger.With(zap.String("service", "form-service"))
 
 	if db, err = connectToDatabase(); err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
@@ -77,6 +83,28 @@ func main() {
 		logger.Fatal("Failed to migrate database", zap.Error(err))
 	}
 	logger.Info("Database auto migrated", zap.String("table", "form"), zap.String("table", "question"), zap.String("table", "answer"), zap.String("table", "response"))
+
+	conn, err = rabbitmq.NewConn(
+		os.Getenv("RABBITMQ_URL"),
+		rabbitmq.WithConnectionOptionsLogging,
+	)
+	if err != nil {
+		logger.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
+	}
+	logger.Info("Connected to RabbitMQ")
+	defer conn.Close()
+
+	publisher, err = rabbitmq.NewPublisher(
+		conn,
+		rabbitmq.WithPublisherOptionsLogging,
+		rabbitmq.WithPublisherOptionsExchangeName("events"),
+		rabbitmq.WithPublisherOptionsExchangeDeclare,
+	)
+	if err != nil {
+		logger.Fatal("Failed to create rabbitmq publisher", zap.Error(err))
+	}
+	logger.Info("RabbitMQ publisher created")
+	defer publisher.Close()
 
 	r := gin.Default()
 	r.Use(ginzap.Ginzap(logger, time.RFC3339, true))
@@ -130,7 +158,7 @@ func role(roles ...string) gin.HandlerFunc {
 // TODO: for all database inserts and errors
 
 func createForm(c *gin.Context) {
-  logger.Debug("Entering createForm function")
+	logger.Debug("Entering createForm function")
 	// TODO: general schema validation
 
 	type QuestionJsonBody struct {
@@ -150,7 +178,7 @@ func createForm(c *gin.Context) {
 
 	if err := c.BindJSON(&formRequest); err != nil {
 		logger.Error("Failed to bind request", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // TODO: log this
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -211,11 +239,11 @@ func createForm(c *gin.Context) {
 		"message": "Form created successfully",
 		"form_id": form.ID,
 	})
-  logger.Debug("Exiting createForm function")
+	logger.Debug("Exiting createForm function")
 }
 
 func getFormByID(c *gin.Context) {
-  logger.Debug("Entering getFormByID function")
+	logger.Debug("Entering getFormByID function")
 	formID := c.Param("id")
 	var form models.Form
 	if err := db.Preload("Questions").First(&form, formID).Error; err != nil {
@@ -250,11 +278,11 @@ func getFormByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
-  logger.Debug("Exiting getFormByID function")
+	logger.Debug("Exiting getFormByID function")
 }
 
 func submitFormResponse(c *gin.Context) {
-  logger.Debug("Entering submitFormResponse function")
+	logger.Debug("Entering submitFormResponse function")
 	// TODO: Here there generic validation which should follow the required in this
 	// NOTE: improve this to use already existing types
 	var responseJSON struct {
@@ -292,6 +320,14 @@ func submitFormResponse(c *gin.Context) {
 		SubmissionTime: time.Now(),
 	}
 
+	var form models.Form
+	if err = tx.Preload("Questions").First(&form, responseJSON.FormID).Error; err != nil {
+		logger.Error("Failed to get form", zap.Error(err))
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"error": "Form not found"})
+		return
+	}
+
 	if err := tx.Create(&response).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -322,18 +358,86 @@ func submitFormResponse(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	logger.Debug("Response submitted", zap.Uint("response_id", response.ID))
+	logger.Debug("Response committed to database", zap.Uint("response_id", response.ID))
+
+	type MessageData struct {
+		UserID      uint       `json:"user_id"`
+		FormID      uint       `json:"form_id"`
+		Title       string     `json:"title"`
+		Description string     `json:"description"`
+		QnA         [][]string `json:"qna"`
+	}
+
+	type Message struct {
+		Event  string      `json:"event"`
+		TeamID uint        `json:"team_id"`
+		Data   MessageData `json:"data"`
+	}
+
+	message := Message{
+		Event:  "response-submission",
+		TeamID: form.TeamID,
+		Data: MessageData{
+			UserID:      uint(userId),
+			FormID:      form.ID,
+			Title:       form.Title,
+			Description: form.Description,
+		},
+	}
+
+	for _, question := range form.Questions {
+		didntAnswer := true
+		for _, answer := range answers {
+			if answer.QuestionID == question.ID {
+				var answerValue interface{}
+				switch question.Type {
+				case models.Radio:
+					var valueIdx uint
+					answer.Value.AssignTo(&valueIdx)
+					answerValue = question.Options.Elements[valueIdx].String
+				case models.Checkbox:
+					var valueIdxs []uint
+					answer.Value.AssignTo(&valueIdxs)
+					var value []string
+					for _, idx := range valueIdxs {
+						value = append(value, question.Options.Elements[idx].String)
+					}
+					answerValue = value
+				case models.Text:
+					answer.Value.AssignTo(&answerValue)
+				}
+				message.Data.QnA = append(message.Data.QnA, []string{question.Text, convertInterfaceToString(answerValue)})
+				didntAnswer = false
+			}
+		}
+		if didntAnswer {
+			message.Data.QnA = append(message.Data.QnA, []string{question.Text, "N/A"})
+		}
+
+	}
+
+	jsonMessage, err := json.Marshal(message)
+	if err != nil {
+		logger.Error("Failed to marshal message", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err = publisher.Publish(jsonMessage, []string{"events"}, rabbitmq.WithPublishOptionsContentType("application/json"), rabbitmq.WithPublishOptionsExchange("events")); err != nil {
+		logger.Error("Failed to publish message", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":      "success",
 		"message":     "Response submitted successfully",
-		"response_id": response.ID,
-	})
-  logger.Debug("Exiting submitFormResponse function")
+		"response_id": response.ID},
+	)
+	logger.Debug("Exiting submitFormResponse function")
 }
 
 func getFormResponseByID(c *gin.Context) {
-  logger.Debug("Entering getFormResponseByID function")
+	logger.Debug("Entering getFormResponseByID function")
 	responseID := c.Param("id")
 	var response models.Response
 	if err := db.Preload("Answers").First(&response, responseID).Error; err != nil {
@@ -410,7 +514,7 @@ func getFormResponseByID(c *gin.Context) {
 				case models.Radio:
 					var valueIdx uint
 					answer.Value.AssignTo(&valueIdx)
-					answerValue = question.Options.Elements[valueIdx]
+					answerValue = question.Options.Elements[valueIdx].String
 				case models.Checkbox:
 					var valueIdxs []uint
 					answer.Value.AssignTo(&valueIdxs)
@@ -444,11 +548,11 @@ func getFormResponseByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responseJSON)
-  logger.Debug("Exiting getFormResponseByID function")
+	logger.Debug("Exiting getFormResponseByID function")
 }
 
 func getFormResponsesByFormID(c *gin.Context) {
-  logger.Debug("Entering getFormResponsesByFormID function")
+	logger.Debug("Entering getFormResponsesByFormID function")
 	formID := c.Param("id")
 
 	var response struct {
@@ -528,12 +632,13 @@ func getFormResponsesByFormID(c *gin.Context) {
 					break
 				}
 			}
+
 			var answerValue interface{}
 			switch question.Type {
 			case models.Radio:
 				var valueIdx uint
 				answer.Value.AssignTo(&valueIdx)
-				answerValue = question.Options.Elements[valueIdx]
+				answerValue = question.Options.Elements[valueIdx].String
 			case models.Checkbox:
 				var valueIdxs []uint
 				answer.Value.AssignTo(&valueIdxs)
@@ -556,5 +661,17 @@ func getFormResponsesByFormID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
-  logger.Debug("Exiting getFormResponsesByFormID function")
+	logger.Debug("Exiting getFormResponsesByFormID function")
+}
+
+func convertInterfaceToString(value interface{}) string {
+	val := reflect.ValueOf(value)
+	if val.Kind() == reflect.Array || val.Kind() == reflect.Slice {
+		var result []string
+		for i := 0; i < val.Len(); i++ {
+			result = append(result, fmt.Sprintf("%v", val.Index(i)))
+		}
+		return strings.Join(result, ", ")
+	}
+	return fmt.Sprintf("%v", value)
 }

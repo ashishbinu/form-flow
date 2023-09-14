@@ -6,6 +6,7 @@ import (
 	"auth-service/utils"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,6 +46,9 @@ func main() {
 	api.POST("/register", Register)
 	api.POST("/login", Login)
 	api.GET("/validate", Validate)
+
+	// internal endpoint
+	r.GET("/users/:id", getUserById)
 
 	r.Run(":80")
 }
@@ -136,4 +140,19 @@ func Validate(c *gin.Context) {
 		"message": "Token is valid",
 		"claims":  claims,
 	})
+}
+
+func getUserById(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var user models.User
+	user, err = models.GetUserById(uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, user)
 }

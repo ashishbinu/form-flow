@@ -51,26 +51,10 @@ func (gsp *GoogleSheetsPlugin) Get() pluginserver.PluginData {
 }
 
 func (gsp *GoogleSheetsPlugin) Initialize() error {
-	//
-	// var err error
-	// _, err = database.ConnectDB(&database.DBConfig{
-	// 	Host:     os.Getenv("DB_HOST"),
-	// 	Port:     os.Getenv("DB_PORT"),
-	// 	User:     os.Getenv("DB_USER"),
-	// 	Password: os.Getenv("DB_PASSWORD"),
-	// 	DBName:   os.Getenv("DB_NAME"),
-	// 	SSLMode:  os.Getenv("DB_SSLMODE"),
-	// })
-	// if err != nil {
-	// 	return err
-	// }
-	//
-	// return nil
 	return nil
 }
 
 func (gsp *GoogleSheetsPlugin) Close() error {
-	// database.CloseDB()
 	return nil
 }
 

@@ -38,11 +38,13 @@ services:
       - form-service
       - auth-service
       - plugin-manager-service
-
+    cpus: '0.25'
 
   form-service:
     container_name: form-service
     restart: unless-stopped
+    labels:
+      co.elastic.logs/enabled: true
     build:
       context: ./services/form-service
       dockerfile: Dockerfile
@@ -55,6 +57,8 @@ services:
     depends_on:
       form-db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       DB_HOST: form-db
       DB_PORT: 5432
@@ -62,8 +66,12 @@ services:
       DB_PASSWORD: form_service_man
       DB_NAME: form_service_database
       DB_SSLMODE: disable
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+    env_file:
+      - .env
     networks:
       - form-network
+    cpus: '0.25'
 
   form-db:
     image: postgres:latest
@@ -84,6 +92,7 @@ services:
       - "5432"
     networks:
       - form-network
+    cpus: '0.25'
 
   auth-service:
     container_name: auth-service
@@ -100,6 +109,8 @@ services:
     depends_on:
       auth-db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       DB_HOST: auth-db
       DB_PORT: 5432
@@ -108,8 +119,10 @@ services:
       DB_NAME: auth_service_database
       DB_SSLMODE: disable
       JWT_SECRET: hAnjwHeNT2kpQmY8I46
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
     networks:
       - auth-network
+    cpus: '0.25'
 
   auth-db:
     image: postgres:latest
@@ -130,6 +143,7 @@ services:
       - "5432"
     networks:
       - auth-network
+    cpus: '0.25'
 
   plugin-manager-service:
     container_name: plugin-manager-service
@@ -146,6 +160,8 @@ services:
     depends_on:
       plugin-manager-db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       DB_HOST: plugin-manager-db
       DB_PORT: 5432
@@ -153,8 +169,10 @@ services:
       DB_PASSWORD: plugin_manager_service_man
       DB_NAME: plugin_manager_service_database
       DB_SSLMODE: disable
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
     networks:
       - plugin-manager-network
+    cpus: '0.25'
 
   plugin-manager-db:
     image: postgres:latest
@@ -175,7 +193,7 @@ services:
       - "5432"
     networks:
       - plugin-manager-network
-      - google-sheets-network
+    cpus: '0.25'
 
   google-sheets-service:
     container_name: google-sheets-service
@@ -196,6 +214,57 @@ services:
       - google-sheets-network
       - plugin-manager-network
       - form-network
+    cpus: '0.25'
+
+  sms-service:
+    container_name: sms-service
+    restart: unless-stopped
+    build:
+      context: ./services/plugins/sms-service
+      dockerfile: Dockerfile
+    x-develop:
+      watch:
+        - action: rebuild
+          path: ./services/plugins/sms-service/
+    environment:
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      TWILIO_PHONE_NUMBER: "+13344228645"
+      TWILIO_AUTH_TOKEN: "ff420a510c3966752bf64009c67d7ab9"
+      TWILIO_ACCOUNT_SID: "AC6ddfca6c50e191d8afcc4f5d73a3406a"
+    expose:
+      - "80"
+    depends_on:
+      - plugin-manager-service
+      - form-service
+      - auth-service
+    networks:
+      - sms-network
+      - plugin-manager-network
+      - auth-network
+    cpus: '0.25'
+
+  rabbitmq:
+    container_name: "rabbitmq"
+    image: "rabbitmq:3-management-alpine"
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      interval: 1s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "5672"
+    ports:
+      - "15672:15672"
+    environment:
+      RABBITMQ_ERLANG_COOKIE: rabbitmq.cookie
+    volumes:
+        - ./rabbitmq:/var/lib/rabbitmq
+    networks:
+      - auth-network
+      - form-network
+      - plugin-manager-network
+      - sms-network
+    # cpus: '0.5' # makes it not work
 
 networks:
   form-network:
@@ -206,3 +275,63 @@ networks:
     driver: bridge
   google-sheets-network:
     driver: bridge
+  sms-network:
+    driver: bridge
+
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.6.1
+  #   container_name: elasticsearch
+  #   volumes:
+  #     - ./elasticsearch:/usr/share/elasticsearch/data
+  #   environment:
+  #     discovery.type: single-node
+  #     xpack.security.enabled: false
+  #   ports:
+  #     - 9200:9200
+  #     - 9300:9300
+  #   restart: unless-stopped
+  #   labels:
+  #     co.elastic.logs/enabled: false
+  #   cpus: '0.25'
+  #
+  # kibana:
+  #   image: docker.elastic.co/kibana/kibana:8.6.1
+  #   container_name: kibana
+  #   environment:
+  #     ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+  #   ports:
+  #     - 5601:5601
+  #   depends_on:
+  #     - elasticsearch
+  #   restart: unless-stopped
+  #   labels:
+  #     co.elastic.logs/enabled: false
+  #   cpus: '0.25'
+  #
+  # logstash:
+  #   image: docker.elastic.co/logstash/logstash:8.6.1
+  #   container_name: logstash
+  #   volumes:
+  #     - ./services/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+  #   ports:
+  #     - 5044:5044/tcp
+  #   depends_on:
+  #     - elasticsearch
+  #   restart: unless-stopped
+  #   labels:
+  #     co.elastic.logs/enabled: false
+  #   cpus: '0.25'
+  #
+  # filebeat:
+  #   image: docker.elastic.co/beats/filebeat:8.6.1
+  #   container_name: filebeat
+  #   user: root
+  #   volumes:
+  #     - ./services/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+  #     - /var/lib/docker/containers:/var/lib/docker/containers:ro
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   depends_on:
+  #     - logstash
+  #   command: filebeat -e -strict.perms=false
+  #   restart: unless-stopped
+  #   cpus: '0.25'

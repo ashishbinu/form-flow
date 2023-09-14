@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -15,14 +16,28 @@ import (
 	"sync"
 	"time"
 
+	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/wagslane/go-rabbitmq"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
+var conn *rabbitmq.Conn
+var logger *zap.Logger
+var publisher *rabbitmq.Publisher
+var consumer *rabbitmq.Consumer
+
 func main() {
 	var err error
-	r := gin.Default()
+
+	logger, _ = zap.NewDevelopment()
+	logger.With(zap.String("service", "plugin-manager-service"))
+
+	r := gin.New()
+	r.Use(ginzap.Ginzap(logger, time.RFC3339, true))
+	r.Use(ginzap.RecoveryWithZap(logger, true))
 
 	_, err = database.ConnectDB(&database.DBConfig{
 		Host:     os.Getenv("DB_HOST"),
@@ -33,12 +48,51 @@ func main() {
 		SSLMode:  os.Getenv("DB_SSLMODE"),
 	})
 	if err != nil {
-		panic(err)
+		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
+	logger.Info("Connected to database")
 
-	database.DB.AutoMigrate(&models.Plugin{}, &models.Action{}, &models.Event{}, &models.PluginSetting{})
+	if err = database.DB.AutoMigrate(&models.Plugin{}, &models.Action{}, &models.Event{}, &models.PluginSetting{}); err != nil {
+		logger.Fatal("Failed to migrate database", zap.Error(err))
+	}
+	logger.Info("Database auto migrated", zap.String("table", "plugin"), zap.String("table", "action"), zap.String("table", "event"), zap.String("table", "plugin_setting"))
 
 	defer database.CloseDB()
+
+	conn, err = rabbitmq.NewConn(
+		os.Getenv("RABBITMQ_URL"),
+		rabbitmq.WithConnectionOptionsLogging,
+	)
+	if err != nil {
+		logger.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
+	}
+	logger.Info("Connected to RabbitMQ")
+	defer conn.Close()
+
+	consumer, err = rabbitmq.NewConsumer(
+		conn,
+		routeMessages,
+		"router",
+		rabbitmq.WithConsumerOptionsRoutingKey("events"),
+		rabbitmq.WithConsumerOptionsExchangeName("events"),
+		rabbitmq.WithConsumerOptionsExchangeDeclare,
+	)
+	if err != nil {
+		logger.Fatal("Failed to create consumer", zap.Error(err))
+	}
+	defer consumer.Close()
+
+	publisher, err = rabbitmq.NewPublisher(
+		conn,
+		rabbitmq.WithPublisherOptionsLogging,
+		rabbitmq.WithPublisherOptionsExchangeName("manager"),
+		rabbitmq.WithPublisherOptionsExchangeDeclare,
+	)
+	if err != nil {
+		logger.Fatal("Failed to create rabbitmq publisher", zap.Error(err))
+	}
+	logger.Info("RabbitMQ publisher created")
+	defer publisher.Close()
 
 	v1 := r.Group("/api/v1/plugins")
 
@@ -69,7 +123,7 @@ func main() {
 	var plugins []models.Plugin
 	var urls []string
 	if err := database.DB.Find(&plugins).Error; err != nil {
-		log.Fatal(err)
+		logger.Fatal("Failed to get plugins", zap.Error(err))
 	} else {
 		for _, plugin := range plugins {
 			urls = append(urls, plugin.Url)
@@ -97,6 +151,7 @@ func pollEndpoint(endpointURL string, pollingInterval time.Duration, wg *sync.Wa
 		resp, err := http.Get(endpointURL)
 		if err != nil {
 			log.Printf("Error polling %s: %v\n", endpointURL, err)
+			// TODO: after certain retries reduce the instances count for the plugin
 			continue // Continue polling even if there's an error
 		}
 		defer resp.Body.Close()
@@ -132,6 +187,7 @@ func role(roles ...string) gin.HandlerFunc {
 }
 
 func GetAllPlugins(c *gin.Context) {
+  logger.Debug("---------------hi-------------")
 	var plugins []models.Plugin
 	if err := database.DB.Preload("Events").Preload("Actions").Find(&plugins).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -222,9 +278,7 @@ func GetPluginSettings(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Plugin status updated",
-		"plugin":  pluginSetting})
+	c.JSON(http.StatusOK, pluginSetting)
 }
 
 func SetPluginStatus(c *gin.Context) {
@@ -249,10 +303,7 @@ func SetPluginStatus(c *gin.Context) {
 		Enabled:  request.Enabled,
 	}
 
-	if err := database.DB.FirstOrCreate(&pluginSetting, models.PluginSetting{
-		PluginID: pluginSetting.PluginID,
-		TeamID:   pluginSetting.TeamID,
-	}).Error; err != nil {
+	if err := database.DB.Where("plugin_id = ? AND team_id = ?", pluginSetting.PluginID, pluginSetting.TeamID).Save(&pluginSetting).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -349,6 +400,7 @@ func RegisterPlugin(c *gin.Context) {
 		return
 	}
 
+  logger.Debug("-------------------------HERE------------------------------")
 	tx := database.DB.Begin()
 
 	plugin := models.Plugin{
@@ -385,6 +437,8 @@ func RegisterPlugin(c *gin.Context) {
 		events = append(events, models.Event{Name: eventName,
 			PluginID: plugin.ID})
 	}
+
+  logger.Debug("Registering Events for plugin : ", zap.String("name", plugin.Name), zap.Any("Events",request.Events ))
 
 	if len(events) != 0 {
 		if err := tx.Create(&events).Error; err != nil {
@@ -438,4 +492,72 @@ func reverseProxy(target string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
+}
+
+func routeMessages(d rabbitmq.Delivery) rabbitmq.Action {
+	var message struct {
+		Event  string      `json:"event"`
+		TeamID uint        `json:"team_id"`
+		Data   interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(d.Body, &message); err != nil {
+		logger.Error("Failed to unmarshal message", zap.Error(err))
+		return rabbitmq.NackDiscard
+	}
+	logger.Debug("Received message at manager publisher", zap.String("event", message.Event), zap.Uint("team_id", message.TeamID), zap.Any("data", message.Data))
+
+	// First look at the event name and see which plugins have that event name inside the events array
+	// then see if those plugins are active or not
+	// then see if that team id has enabled that plugin
+	var plugins []models.Plugin
+	if err := database.DB.
+		Where("instances > 0").
+		Joins("JOIN events ON plugins.id = events.plugin_id").
+		Where("events.name = ?", message.Event).
+		Find(&plugins).Error; err != nil {
+		logger.Error("Failed to query plugins", zap.Error(err))
+		return rabbitmq.NackDiscard
+	}
+
+  logger.Info("Found plugins", zap.Int("plugins", len(plugins)))
+
+	var noMatchingPlugin bool
+	for _, plugin := range plugins {
+		noMatchingPlugin = true
+		var pluginSetting models.PluginSetting
+		if err := database.DB.Where("plugin_id = ? AND team_id = ?", plugin.ID, message.TeamID).First(&pluginSetting).Error; err != nil {
+			logger.Error("Failed to query PluginSetting", zap.Error(err))
+			continue
+		}
+
+		if pluginSetting.Enabled {
+			noMatchingPlugin = false
+			logger.Info("Routing message",
+				zap.String("event", message.Event),
+				zap.Uint("team_id", message.TeamID),
+				zap.String("plugin_name", plugin.Name),
+			)
+
+			jsonMessage, err := json.Marshal(message)
+			if err != nil {
+				logger.Error("Failed to marshal message", zap.Error(err))
+				return rabbitmq.NackDiscard
+			}
+			if err = publisher.Publish(jsonMessage, []string{plugin.ID.String()}, rabbitmq.WithPublishOptionsContentType("application/json"), rabbitmq.WithPublishOptionsExchange("manager")); err != nil {
+				logger.Error("Failed to publish message", zap.Error(err))
+				return rabbitmq.NackDiscard
+			}
+
+		}
+	}
+
+	if noMatchingPlugin {
+		logger.Warn("No matching or enabled plugin found for the message",
+			zap.String("event", message.Event),
+			zap.Uint("team_id", message.TeamID),
+		)
+		return rabbitmq.NackDiscard
+	}
+
+	return rabbitmq.Ack
 }

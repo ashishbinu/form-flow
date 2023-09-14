@@ -2,16 +2,18 @@
 
 ## Draft Idea
 
+- [x] Basic JWT Auth
+- [x] API gateway
 - For Teams
   - management for an organization (probably some kind of team authentication)
-  - Ability to create forms with question and responses.
-  - Plugin architecture for adding services.
-    - Adding Google sheets integration.
+  - [x] Ability to create forms with question and responses.
+  - [x] Plugin architecture for adding services.
+    - [x] Adding Google sheets integration.
     - Adding SMS notifications to customers.
     - Adding slang search support.
     - Adding form validation for each response/answer values.
 - For User (maybe authorisation as different user response need to be recorded)
-  - Submit answers to forms.
+  - [x] Submit answers to forms.
 - Logging feature (only for admins)
 - Monitoring (only for admins)
 - Swagger docs (no authorisation)

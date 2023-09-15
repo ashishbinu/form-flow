@@ -243,6 +243,28 @@ services:
       - auth-network
     cpus: '0.25'
 
+  slang-service:
+    container_name: slang-service
+    restart: unless-stopped
+    build:
+      context: ./services/plugins/slang-service
+      dockerfile: Dockerfile
+    x-develop:
+      watch:
+        - action: rebuild
+          path: ./services/plugins/slang-service/
+    expose:
+      - "80"
+    depends_on:
+      - plugin-manager-service
+      - form-service
+    networks:
+      - slang-network
+      - plugin-manager-network
+      - form-network
+    cpus: '0.25'
+
+
   rabbitmq:
     container_name: "rabbitmq"
     image: "rabbitmq:3-management-alpine"
@@ -276,6 +298,8 @@ networks:
   google-sheets-network:
     driver: bridge
   sms-network:
+    driver: bridge
+  slang-network:
     driver: bridge
 
   # elasticsearch:

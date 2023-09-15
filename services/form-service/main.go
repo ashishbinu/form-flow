@@ -123,6 +123,7 @@ func main() {
 	v1.GET("/:id/responses", role("team"), getFormResponsesByFormID)
 	// internal endpoint
 	r.GET("/:id/responses", getFormResponsesByFormID)
+	r.GET("/:id/answers", getTextAnswerForAQuestion)
 
 	if err = r.Run(":80"); err != nil {
 		logger.Fatal("Failed to start server", zap.Error(err))
@@ -662,6 +663,27 @@ func getFormResponsesByFormID(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 	logger.Debug("Exiting getFormResponsesByFormID function")
+}
+
+func getTextAnswerForAQuestion(c *gin.Context) {
+	responseID := c.Query("response_id")
+	questionID := c.Query("question_id")
+	var answer models.Answer
+	if err := db.Where("response_id = ? AND question_id = ?", responseID, questionID).Find(&answer).Error; err != nil {
+		logger.Error("Failed to get answer", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+  if answer.Type != string(models.Text) {
+    logger.Warn("Invalid answer type", zap.String("type", answer.Type))
+    c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid answer type"})
+    return
+  }
+
+	c.JSON(http.StatusOK, gin.H{
+		"value": answer.Value,
+	})
 }
 
 func convertInterfaceToString(value interface{}) string {

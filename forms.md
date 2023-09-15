@@ -48,6 +48,63 @@ curl -X POST "http://localhost:3000/api/v1/form/" \
 
 ```
 
+2.
+
+```bash
+
+curl -X POST "http://localhost:3000/api/v1/form/" \
+   -H "Authorization: Bearer $token" \
+   -H 'Content-Type: application/json' \
+   -d '{
+     "title": "New Generation Lifestyle Survey",
+     "description": "Survey to understand the lifestyle of the new generation in Indian cities.",
+     "questions": [
+       {
+         "type": "text",
+         "text": "What is your full name?",
+         "required": true
+       },
+       {
+         "type": "text",
+         "text": "How old are you?",
+         "required": true
+       },
+       {
+         "type": "text",
+         "text": "Which city in India do you live in?",
+         "required": true
+       },
+       {
+         "type": "text",
+         "text": "Describe your daily food habits and preferences.",
+         "required": true
+       },
+       {
+         "type": "checkbox",
+         "text": "Select your interests (you can select multiple):",
+         "options": ["Technology", "Fashion", "Fitness", "Travel", "Music", "Movies", "Food", "Gaming", "Other"]
+       },
+       {
+         "type": "text",
+         "text": "What are your favorite activities or places to hang out in your city?"
+       },
+       {
+         "type": "radio",
+         "text": "Do you prefer traditional Indian food or fast food?",
+         "options": ["Traditional Indian Food", "Fast Food"]
+       },
+       {
+         "type": "text",
+         "text": "Share your thoughts on the impact of technology on your daily life."
+       },
+       {
+         "type": "text",
+         "text": "What are some popular slang words or phrases used by your generation?"
+       }
+     ]
+   }'
+```
+
 # Form retrieval
 
 ```bash

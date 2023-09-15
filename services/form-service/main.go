@@ -106,7 +106,7 @@ func main() {
 	logger.Info("RabbitMQ publisher created")
 	defer publisher.Close()
 
-	r := gin.Default()
+	r := gin.New()
 	r.Use(ginzap.Ginzap(logger, time.RFC3339, true))
 	r.Use(ginzap.RecoveryWithZap(logger, true))
 
@@ -675,11 +675,11 @@ func getTextAnswerForAQuestion(c *gin.Context) {
 		return
 	}
 
-  if answer.Type != string(models.Text) {
-    logger.Warn("Invalid answer type", zap.String("type", answer.Type))
-    c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid answer type"})
-    return
-  }
+	if answer.Type != string(models.Text) {
+		logger.Warn("Invalid answer type", zap.String("type", answer.Type))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid answer type"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"value": answer.Value,

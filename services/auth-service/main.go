@@ -185,7 +185,7 @@ func getUserById(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	logger.Debug("User id retrieved", zap.Uint("id", id))
+	logger.Debug("User id retrieved", zap.Uint64("id", id))
 
 	var user models.User
 	user, err = models.GetUserById(uint(id))

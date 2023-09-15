@@ -187,7 +187,7 @@ func role(roles ...string) gin.HandlerFunc {
 }
 
 func GetAllPlugins(c *gin.Context) {
-  logger.Debug("---------------hi-------------")
+	logger.Debug("---------------hi-------------")
 	var plugins []models.Plugin
 	if err := database.DB.Preload("Events").Preload("Actions").Find(&plugins).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -229,7 +229,7 @@ func GetPluginsById(c *gin.Context) {
 	id := c.Param("id")
 
 	var plugin models.Plugin
-	if err := database.DB.Preload("Events").First(&plugin, id).Error; err != nil {
+	if err := database.DB.Preload("Events").First(&plugin, uuid.MustParse(id)).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -400,7 +400,7 @@ func RegisterPlugin(c *gin.Context) {
 		return
 	}
 
-  logger.Debug("-------------------------HERE------------------------------")
+	logger.Debug("-------------------------HERE------------------------------")
 	tx := database.DB.Begin()
 
 	plugin := models.Plugin{
@@ -438,7 +438,7 @@ func RegisterPlugin(c *gin.Context) {
 			PluginID: plugin.ID})
 	}
 
-  logger.Debug("Registering Events for plugin : ", zap.String("name", plugin.Name), zap.Any("Events",request.Events ))
+	logger.Debug("Registering Events for plugin : ", zap.String("name", plugin.Name), zap.Any("Events", request.Events))
 
 	if len(events) != 0 {
 		if err := tx.Create(&events).Error; err != nil {
@@ -519,7 +519,7 @@ func routeMessages(d rabbitmq.Delivery) rabbitmq.Action {
 		return rabbitmq.NackDiscard
 	}
 
-  logger.Info("Found plugins", zap.Int("plugins", len(plugins)))
+	logger.Info("Found plugins", zap.Int("plugins", len(plugins)))
 
 	var noMatchingPlugin bool
 	for _, plugin := range plugins {

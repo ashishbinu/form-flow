@@ -150,7 +150,7 @@ func pollEndpoint(endpointURL string, pollingInterval time.Duration, wg *sync.Wa
 	for {
 		resp, err := http.Get(endpointURL)
 		if err != nil {
-			log.Printf("Error polling %s: %v\n", endpointURL, err)
+			logger.Error("Error polling", zap.String("endpoint", endpointURL), zap.Error(err))
 			// TODO: after certain retries reduce the instances count for the plugin
 			continue // Continue polling even if there's an error
 		}
@@ -158,7 +158,7 @@ func pollEndpoint(endpointURL string, pollingInterval time.Duration, wg *sync.Wa
 
 		// Read and print the response (you can modify this part for your specific use case)
 		// For example, you might want to process the response data differently.
-		log.Printf("Response from %s: Status %s\n", endpointURL, resp.Status)
+		logger.Debug("Response from ", zap.String("endpoint", endpointURL), zap.String("status", resp.Status))
 
 		time.Sleep(pollingInterval)
 	}
@@ -177,22 +177,26 @@ func role(roles ...string) gin.HandlerFunc {
 		}
 
 		if !roleMatched {
+			logger.Warn("Role doesn't match", zap.String("role", userRole), zap.Strings("required_roles", roles))
 			c.JSON(http.StatusForbidden, gin.H{"error": "Not a " + strings.Join(roles, ", ")})
 			c.Abort()
 			return
 		}
+		logger.Debug("Role matched", zap.String("role", userRole), zap.Strings("required_roles", roles))
 
 		c.Next()
 	}
 }
 
 func GetAllPlugins(c *gin.Context) {
-	logger.Debug("---------------hi-------------")
+	logger.Debug("Entering GetAllPlugins Function")
 	var plugins []models.Plugin
 	if err := database.DB.Preload("Events").Preload("Actions").Find(&plugins).Error; err != nil {
+		logger.Error("Failed to get plugins", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugins retrieved", zap.Any("plugins", plugins))
 
 	type Response struct {
 		ID          uuid.UUID `json:"id"`
@@ -220,19 +224,25 @@ func GetAllPlugins(c *gin.Context) {
 			Events:      eventNames,
 			Actions:     actionNames,
 		})
-
 	}
+
 	c.JSON(http.StatusOK, response)
+	logger.Debug("Exiting GetAllPlugins Function")
 }
 
 func GetPluginsById(c *gin.Context) {
+	logger.Debug("Entering GetPluginsById Function")
 	id := c.Param("id")
+	logger.Debug("Plugin id received", zap.String("id", id))
 
 	var plugin models.Plugin
 	if err := database.DB.Preload("Events").Preload("Actions").First(&plugin, uuid.MustParse(id)).Error; err != nil {
+		logger.Error("Failed to get plugin", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin retrieved", zap.Any("plugin", plugin))
+
 	type Response struct {
 		ID          uuid.UUID `json:"id"`
 		Name        string    `json:"name"`
@@ -259,11 +269,16 @@ func GetPluginsById(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+	logger.Debug("Exiting GetPluginsById Function")
 }
 func GetPluginSettings(c *gin.Context) {
+	logger.Debug("Entering GetPluginSettings Function")
 	id := c.Param("id")
+	logger.Debug("Plugin id received", zap.String("id", id))
+
 	teamID, err := strconv.ParseUint(c.Request.Header.Get("X-Id"), 10, 64)
 	if err != nil {
+		logger.Error("Failed to parse team id", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -274,29 +289,38 @@ func GetPluginSettings(c *gin.Context) {
 		PluginID: uuid.MustParse(id),
 		TeamID:   uint(teamID),
 	}).Error; err != nil {
+		logger.Error("Failed to get plugin setting", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin setting retrieved", zap.Any("pluginSetting", pluginSetting))
 
 	c.JSON(http.StatusOK, pluginSetting)
+	logger.Debug("Exiting GetPluginSettings Function")
 }
 
 func SetPluginStatus(c *gin.Context) {
+	logger.Debug("Entering SetPluginStatus Function")
 	type Request struct {
 		Enabled bool `json:"enabled"`
 	}
 
 	var request Request
 	if err := c.ShouldBindJSON(&request); err != nil {
+		logger.Error("Failed to bind JSON", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Request body correct", zap.Any("request", request))
 
 	teamID, err := strconv.ParseUint(c.Request.Header.Get("X-Id"), 10, 64)
 	if err != nil {
+		logger.Error("Failed to parse team id", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Team id correct", zap.Uint64("teamID", teamID))
+
 	pluginSetting := models.PluginSetting{
 		PluginID: uuid.MustParse(c.Param("id")),
 		TeamID:   uint(teamID),
@@ -304,82 +328,97 @@ func SetPluginStatus(c *gin.Context) {
 	}
 
 	if err := database.DB.Where("plugin_id = ? AND team_id = ?", pluginSetting.PluginID, pluginSetting.TeamID).Save(&pluginSetting).Error; err != nil {
+		logger.Error("Failed to set plugin status", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin status updated", zap.Any("pluginSetting", pluginSetting))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Plugin status updated",
 		"plugin":  pluginSetting})
+	logger.Debug("Exiting SetPluginStatus Function")
 }
 
 func IsPluginEnabled(db *gorm.DB, pluginID uuid.UUID, teamID uint) (bool, error) {
 	var pluginSetting models.PluginSetting
 
-	// Find the PluginSetting record for the given pluginID and teamID
 	if err := db.Where("plugin_id = ? AND team_id = ?", pluginID, teamID).First(&pluginSetting).Error; err != nil {
-		// Handle the error
 		return false, err
 	}
 
-	// Return the Enabled field of the PluginSetting record
 	return pluginSetting.Enabled, nil
 }
 
 func ConfigurePlugin(c *gin.Context) {
-	var plugin models.Plugin
+	logger.Debug("Entering ConfigurePlugin Function")
 	id := c.Param("id")
+	logger.Debug("Plugin id received", zap.String("id", id))
+
 	teamId, err := strconv.ParseUint(c.Request.Header.Get("X-Id"), 10, 64)
 	if err != nil {
+		logger.Error("Failed to parse team id", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	enabled, err := IsPluginEnabled(database.DB, uuid.MustParse(id), uint(teamId))
-	log.Println("---------------------------")
-	log.Println(enabled)
-	log.Println("---------------------------")
 	if err != nil || !enabled {
+		logger.Error("Plugin is not enabled", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Plugin is not enabled", "error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin is enabled")
 
+	var plugin models.Plugin
 	if err := database.DB.First(&plugin, id).Error; err != nil {
+		logger.Error("Failed to get plugin", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin retrieved", zap.Any("plugin", plugin))
 
 	reverseProxy(plugin.Url + "/configure")(c)
+	logger.Debug("Exiting ConfigurePlugin Function")
 }
 
 func SendActionToPlugin(c *gin.Context) {
+	logger.Debug("Entering SendActionToPlugin Function")
+
 	id := uuid.MustParse(c.Param("id"))
+	logger.Debug("Plugin id received", zap.Any("id", id))
 
 	teamId, err := strconv.ParseUint(c.Request.Header.Get("X-Id"), 10, 64)
 	if err != nil {
+		logger.Error("Failed to parse team id", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Team id correct", zap.Uint64("teamID", teamId))
+
 	enabled, err := IsPluginEnabled(database.DB, id, uint(teamId))
-	log.Println("---------------------------")
-	log.Println(enabled)
-	log.Println("---------------------------")
 	if err != nil || !enabled {
+		logger.Error("Plugin is not enabled", zap.Error(err))
 		log.Println(err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin is not enabled"})
 		return
 	}
+	logger.Debug("Plugin is enabled")
 
 	var plugin models.Plugin
 	if err := database.DB.First(&plugin, id).Error; err != nil {
+		logger.Error("Failed to get plugin", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin retrieved", zap.Any("plugin", plugin))
 
 	reverseProxy(plugin.Url + "/actions/" + c.Param("action"))(c)
-
+	logger.Debug("Exiting SendActionToPlugin Function")
 }
 
 func RegisterPlugin(c *gin.Context) {
+	logger.Debug("Entering RegisterPlugin Function")
 	var request struct {
 		Name        string    `json:"name"`
 		Description string    `json:"description"`
@@ -390,18 +429,22 @@ func RegisterPlugin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
+		logger.Error("Failed to bind JSON", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("JSON received", zap.Any("request", request))
 
 	existingPlugin := models.Plugin{}
 	if err := database.DB.Where("id = ?", request.Id).First(&existingPlugin).Error; err == nil {
+		logger.Error("Plugin already registered", zap.Error(err))
 		c.JSON(http.StatusOK, gin.H{"message": "Plugin already registered", "plugin": existingPlugin})
 		return
 	}
+	logger.Debug("Plugin not registered", zap.Any("request", request))
 
-	logger.Debug("-------------------------HERE------------------------------")
 	tx := database.DB.Begin()
+	logger.Debug("Transaction started")
 
 	plugin := models.Plugin{
 		Name:        request.Name,
@@ -410,13 +453,14 @@ func RegisterPlugin(c *gin.Context) {
 		ID:          request.Id,
 		Instances:   1,
 	}
-	// if already exists send already registered
 
 	if err := tx.Create(&plugin).Error; err != nil {
+		logger.Error("Failed to register plugin", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Plugin registered", zap.Any("plugin", plugin))
 
 	var actions []models.Action
 	for _, actionName := range request.Actions {
@@ -426,11 +470,13 @@ func RegisterPlugin(c *gin.Context) {
 
 	if len(actions) != 0 {
 		if err := tx.Create(&actions).Error; err != nil {
+			logger.Error("Failed to register actions", zap.Error(err))
 			tx.Rollback()
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
+	logger.Debug("Actions registered")
 
 	var events []models.Event
 	for _, eventName := range request.Events {
@@ -442,27 +488,32 @@ func RegisterPlugin(c *gin.Context) {
 
 	if len(events) != 0 {
 		if err := tx.Create(&events).Error; err != nil {
+			logger.Error("Failed to register events", zap.Error(err))
 			tx.Rollback()
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
+	logger.Debug("Events registered")
 
 	if err := tx.Commit().Error; err != nil {
+		logger.Error("Failed to commit transaction", zap.Error(err))
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	logger.Debug("Transaction committed")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Plugin registered",
 		"plugin":  plugin,
 	})
+	logger.Debug("Exiting RegisterPlugin Function")
 }
 
 func reverseProxy(target string) gin.HandlerFunc {
+	reverseProxyLogger := logger.With(zap.String("reverse-proxy", target))
 	targetURL, _ := url.Parse(target)
-	log.Println("URL :" + targetURL.String())
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	proxy.Director = func(req *http.Request) {
@@ -477,20 +528,21 @@ func reverseProxy(target string) gin.HandlerFunc {
 		// Read the response body
 		body, err := io.ReadAll(res.Body)
 		if err != nil {
+			reverseProxyLogger.Error("Failed to read response body", zap.Error(err))
 			return err
 		}
 
 		// Create a new io.ReadCloser for the original response body
 		res.Body = io.NopCloser(bytes.NewBuffer(body))
 
-		// Log the response body
-		log.Println("Response:", string(body))
+		reverseProxyLogger.Debug("Response body", zap.String("body", string(body)))
 
 		return nil
 	}
 
 	return func(c *gin.Context) {
 		proxy.ServeHTTP(c.Writer, c.Request)
+		reverseProxyLogger.Debug("Exiting reverseProxy")
 	}
 }
 

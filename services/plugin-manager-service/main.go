@@ -229,7 +229,7 @@ func GetPluginsById(c *gin.Context) {
 	id := c.Param("id")
 
 	var plugin models.Plugin
-	if err := database.DB.Preload("Events").First(&plugin, uuid.MustParse(id)).Error; err != nil {
+	if err := database.DB.Preload("Events").Preload("Actions").First(&plugin, uuid.MustParse(id)).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

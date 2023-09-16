@@ -7,21 +7,6 @@ x-logging:
     loki-url: "http://localhost:3100/loki/api/v1/push"
 
 services:
-  # nginx:
-  #   container_name: nginx
-  #   image: nginx:latest
-  #   restart: unless-stopped
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #   ports:
-  #     - "3000:80"
-  #   depends_on:
-  #     - form-service
-  #     - auth-service
-  #   networks:
-  #     - form-network
-  #     - auth-network
-  #
   api-gateway:
     logging: *logging
     container_name: api-gateway
@@ -304,9 +289,8 @@ services:
       - plugin-manager-network
       - sms-network
     # cpus: '0.5' # makes it not work
- # 
+
   loki:
-    # logging: *logging
     image: grafana/loki:2.9.0
     container_name: loki
     restart: unless-stopped
@@ -331,7 +315,6 @@ services:
       - loki
  #
   grafana:
-    # logging: *logging
     image: grafana/grafana:latest
     container_name: grafana
     restart: unless-stopped
@@ -358,62 +341,3 @@ networks:
     driver: bridge
   loki:
     driver: bridge
-
-
-  # elasticsearch:
-  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.6.1
-  #   container_name: elasticsearch
-  #   volumes:
-  #     - ./elasticsearch:/usr/share/elasticsearch/data
-  #   environment:
-  #     discovery.type: single-node
-  #     xpack.security.enabled: false
-  #   ports:
-  #     - 9200:9200
-  #     - 9300:9300
-  #   restart: unless-stopped
-  #   labels:
-  #     co.elastic.logs/enabled: false
-  #   cpus: '0.25'
-  #
-  # kibana:
-  #   image: docker.elastic.co/kibana/kibana:8.6.1
-  #   container_name: kibana
-  #   environment:
-  #     ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
-  #   ports:
-  #     - 5601:5601
-  #   depends_on:
-  #     - elasticsearch
-  #   restart: unless-stopped
-  #   labels:
-  #     co.elastic.logs/enabled: false
-  #   cpus: '0.25'
-  #
-  # logstash:
-  #   image: docker.elastic.co/logstash/logstash:8.6.1
-  #   container_name: logstash
-  #   volumes:
-  #     - ./services/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
-  #   ports:
-  #     - 5044:5044/tcp
-  #   depends_on:
-  #     - elasticsearch
-  #   restart: unless-stopped
-  #   labels:
-  #     co.elastic.logs/enabled: false
-  #   cpus: '0.25'
-  #
-  # filebeat:
-  #   image: docker.elastic.co/beats/filebeat:8.6.1
-  #   container_name: filebeat
-  #   user: root
-  #   volumes:
-  #     - ./services/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-  #     - /var/lib/docker/containers:/var/lib/docker/containers:ro
-  #     - /var/run/docker.sock:/var/run/docker.sock:ro
-  #   depends_on:
-  #     - logstash
-  #   command: filebeat -e -strict.perms=false
-  #   restart: unless-stopped
-  #   cpus: '0.25'

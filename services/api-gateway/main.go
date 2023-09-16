@@ -18,11 +18,16 @@ import (
 var logger *zap.Logger
 
 func main() {
+	var err error
+	logger, err = zap.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	logger.With(zap.String("service", "api-gateway"))
+
 	r := gin.New()
 	r.Use(ginzap.Ginzap(logger, time.RFC3339, true))
 	r.Use(ginzap.RecoveryWithZap(logger, true))
-	logger, _ = zap.NewDevelopment()
-	logger.With(zap.String("service", "api-gateway"))
 
 	v1 := r.Group("/api/v1")
 	v1.Any("/form/*path", isAuthorised, reverseProxy("http://form-service"))
@@ -109,6 +114,5 @@ func reverseProxy(target string) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		proxy.ServeHTTP(c.Writer, c.Request)
-		reverseProxyLogger.Debug("Request forwarded to", zap.String("target", target))
 	}
 }

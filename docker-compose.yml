@@ -30,7 +30,7 @@ services:
       - form-service
       - auth-service
       - plugin-manager-service
-    cpus: '0.25'
+    
 
   form-service:
     logging: *logging
@@ -64,7 +64,7 @@ services:
       - .env
     networks:
       - form-network
-    cpus: '0.25'
+    
 
   form-db:
     logging: *logging
@@ -86,7 +86,7 @@ services:
       - "5432"
     networks:
       - form-network
-    cpus: '0.25'
+    
 
   auth-service:
     logging: *logging
@@ -117,7 +117,7 @@ services:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
     networks:
       - auth-network
-    cpus: '0.25'
+    
 
   auth-db:
     logging: *logging
@@ -139,7 +139,7 @@ services:
       - "5432"
     networks:
       - auth-network
-    cpus: '0.25'
+    
 
   plugin-manager-service:
     logging: *logging
@@ -169,7 +169,7 @@ services:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
     networks:
       - plugin-manager-network
-    cpus: '0.25'
+    
 
   plugin-manager-db:
     logging: *logging
@@ -191,7 +191,7 @@ services:
       - "5432"
     networks:
       - plugin-manager-network
-    cpus: '0.25'
+    
 
   google-sheets-service:
     logging: *logging
@@ -213,7 +213,7 @@ services:
       - google-sheets-network
       - plugin-manager-network
       - form-network
-    cpus: '0.25'
+    
 
   sms-service:
     logging: *logging
@@ -241,7 +241,7 @@ services:
       - sms-network
       - plugin-manager-network
       - auth-network
-    cpus: '0.25'
+    
 
   slang-service:
     logging: *logging
@@ -263,8 +263,6 @@ services:
       - slang-network
       - plugin-manager-network
       - form-network
-    cpus: '0.25'
-
 
   rabbitmq:
     logging: *logging
@@ -272,23 +270,23 @@ services:
     image: "rabbitmq:3-management-alpine"
     healthcheck:
       test: rabbitmq-diagnostics check_port_connectivity
-      interval: 1s
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 3
     expose:
       - "5672"
     ports:
       - "15672:15672"
+    user: "1000"
     environment:
       RABBITMQ_ERLANG_COOKIE: rabbitmq.cookie
     volumes:
-        - ./rabbitmq:/var/lib/rabbitmq
+      - ./rabbitmq:/var/lib/rabbitmq
     networks:
       - auth-network
       - form-network
       - plugin-manager-network
       - sms-network
-    # cpus: '0.5' # makes it not work
 
   loki:
     image: grafana/loki:2.9.0

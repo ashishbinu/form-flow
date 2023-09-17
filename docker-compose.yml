@@ -68,7 +68,7 @@ services:
 
   form-db:
     logging: *logging
-    image: postgres:latest
+    image: postgres:15
     container_name: form-db
     restart: unless-stopped
     healthcheck:
@@ -121,7 +121,7 @@ services:
 
   auth-db:
     logging: *logging
-    image: postgres:latest
+    image: postgres:15
     container_name: auth-db
     restart: unless-stopped
     healthcheck:
@@ -176,7 +176,7 @@ services:
 
   plugin-manager-db:
     logging: *logging
-    image: postgres:latest
+    image: postgres:15
     container_name: plugin-manager-db
     restart: unless-stopped
     healthcheck:
@@ -284,7 +284,7 @@ services:
     environment:
       RABBITMQ_ERLANG_COOKIE: rabbitmq.cookie
     volumes:
-      - ./rabbitmq:/var/lib/rabbitmq
+      - rabbitmq:/var/lib/rabbitmq
     networks:
       - auth-network
       - form-network
@@ -321,7 +321,7 @@ services:
     restart: unless-stopped
     user: "1000"
     volumes:
-      - ./grafana:/var/lib/grafana
+      - grafana:/var/lib/grafana
     ports:
       - "4000:3000"
     networks:
@@ -342,3 +342,7 @@ networks:
     driver: bridge
   loki:
     driver: bridge
+
+volumes:
+  grafana:
+  rabbitmq:

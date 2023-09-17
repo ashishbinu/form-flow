@@ -37,7 +37,7 @@ Our technology stack includes Golang with the Gin Framework for microservices, P
 3. Run the system using `docker-compose`:
 
    ```bash
-   docker-compose up -d
+   docker-compose up --build
    ```
 
 Now, your backend architecture is up and running, providing a scalable and modular platform for data collection.

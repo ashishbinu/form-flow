@@ -81,7 +81,7 @@ services:
       POSTGRES_PASSWORD: form_service_man
       POSTGRES_DB: form_service_database
     volumes:
-      - ./database/form:/var/lib/postgresql/data
+      - form-db:/var/lib/postgresql/data
     expose:
       - "5432"
     networks:
@@ -134,7 +134,7 @@ services:
       POSTGRES_PASSWORD: auth_service_man
       POSTGRES_DB: auth_service_database
     volumes:
-      - ./database/auth:/var/lib/postgresql/data
+      - auth-db:/var/lib/postgresql/data
     expose:
       - "5432"
     networks:
@@ -189,7 +189,7 @@ services:
       POSTGRES_PASSWORD: plugin_manager_service_man
       POSTGRES_DB: plugin_manager_service_database
     volumes:
-      - ./database/plugin-manager:/var/lib/postgresql/data
+      - plugin-manager-db:/var/lib/postgresql/data
     expose:
       - "5432"
     networks:
@@ -346,3 +346,6 @@ networks:
 volumes:
   grafana:
   rabbitmq:
+  auth-db:
+  form-db:
+  plugin-manager-db:

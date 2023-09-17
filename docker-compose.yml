@@ -155,6 +155,10 @@ services:
     expose:
       - "80"
     depends_on:
+      form-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
       plugin-manager-db:
         condition: service_healthy
       rabbitmq:
@@ -169,7 +173,6 @@ services:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
     networks:
       - plugin-manager-network
-    
 
   plugin-manager-db:
     logging: *logging

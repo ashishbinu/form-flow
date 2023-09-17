@@ -137,7 +137,9 @@ func main() {
 			go pollEndpoint(url+"/health", pollingInterval, &wg)
 		}
 
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			r.Run(":80")
 		}()
 

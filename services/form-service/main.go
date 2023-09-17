@@ -120,9 +120,9 @@ func main() {
 	v1.GET("/:id", role("user", "team"), getFormByID)
 	v1.POST("/responses", role("user"), submitFormResponse)
 	v1.GET("/responses/:id", role("user", "team"), getFormResponseByID)
-	v1.GET("/:id/responses", role("team"), getFormResponsesByFormID)
+	v1.GET("/:id/responses", role("team"), getAllResponsesByFormID)
 	// internal endpoint
-	r.GET("/:id/responses", getFormResponsesByFormID)
+	r.GET("/:id/responses", getAllResponsesByFormID)
 	r.GET("/:id/answers", getTextAnswerForAQuestion)
 
 	if err = r.Run(":80"); err != nil {
@@ -337,6 +337,49 @@ func submitFormResponse(c *gin.Context) {
 
 	var answers []models.Answer
 	for _, a := range responseJSON.Answers {
+		// check if the given question id is in the form
+		for _, q := range form.Questions {
+			if q.ID != a.QuestionID {
+				tx.Rollback()
+        logger.Error("Question not found", zap.Uint("question_id", a.QuestionID))
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Question id %v not present in the form %v", a.QuestionID, responseJSON.FormID)})
+				return
+			}
+		}
+
+		// check if the value given is in the range of the array of options if the value is radio or checkbox
+		if a.Answer.Type == "radio" || a.Answer.Type == "checkbox" {
+			var numberOfOptions int
+			logger.Debug("Questions", zap.Any("questions", form.Questions))
+			for _, q := range form.Questions {
+				if q.ID == a.QuestionID {
+					numberOfOptions = len(q.Options.Elements)
+					logger.Debug("Number of options", zap.Int("number_of_options", numberOfOptions))
+					break
+				}
+			}
+			if a.Answer.Type == "radio" {
+				var idx int
+				a.Answer.Value.AssignTo(&idx)
+				if idx >= numberOfOptions {
+					tx.Rollback()
+					logger.Error("Invalid option choice", zap.Uint("question_id", a.QuestionID))
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid option choice for question id : %d where option index : %d", a.QuestionID, idx)})
+					return
+				}
+			} else {
+				var idxs []int
+				a.Answer.Value.AssignTo(&idxs)
+				for _, idx := range idxs {
+					if idx >= numberOfOptions {
+						tx.Rollback()
+						logger.Error("Invalid option choice", zap.Uint("question_id", a.QuestionID), zap.Int("option_index", idx), zap.Int("total_options", numberOfOptions))
+						c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid option choice for question id : %d where option index : %d is greater than equal to %d", a.QuestionID, idx, numberOfOptions)})
+						return
+					}
+				}
+			}
+		}
 		answers = append(answers, models.Answer{
 			QuestionID: a.QuestionID,
 			ResponseID: response.ID,
@@ -552,7 +595,7 @@ func getFormResponseByID(c *gin.Context) {
 	logger.Debug("Exiting getFormResponseByID function")
 }
 
-func getFormResponsesByFormID(c *gin.Context) {
+func getAllResponsesByFormID(c *gin.Context) {
 	logger.Debug("Entering getFormResponsesByFormID function")
 	formID := c.Param("id")
 
@@ -635,12 +678,13 @@ func getFormResponsesByFormID(c *gin.Context) {
 			}
 
 			var answerValue interface{}
-			switch question.Type {
-			case models.Radio:
+			switch answer.Type {
+			case string(models.Radio):
 				var valueIdx uint
 				answer.Value.AssignTo(&valueIdx)
-				answerValue = question.Options.Elements[valueIdx].String
-			case models.Checkbox:
+				logger.Debug("Radio answer", zap.Any("answer", answer.Value))
+				answerValue = question.Options.Elements[valueIdx].String // BUG:
+			case string(models.Checkbox):
 				var valueIdxs []uint
 				answer.Value.AssignTo(&valueIdxs)
 				var value []string
@@ -648,7 +692,7 @@ func getFormResponsesByFormID(c *gin.Context) {
 					value = append(value, question.Options.Elements[idx].String)
 				}
 				answerValue = value
-			case models.Text:
+			case string(models.Text):
 				answer.Value.AssignTo(&answerValue)
 			}
 			response.Responses[len(response.Responses)-1].Answers = append(response.Responses[len(response.Responses)-1].Answers, struct {

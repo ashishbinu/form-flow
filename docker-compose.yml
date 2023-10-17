@@ -231,9 +231,8 @@ services:
           path: ./services/plugins/sms-service/
     environment:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-      TWILIO_PHONE_NUMBER: "+13344228645"
-      TWILIO_AUTH_TOKEN: "ff420a510c3966752bf64009c67d7ab9"
-      TWILIO_ACCOUNT_SID: "AC6ddfca6c50e191d8afcc4f5d73a3406a"
+    env_file:
+      - .env
     expose:
       - "80"
     depends_on:
